@@ -1,0 +1,30 @@
+Position: Senior Full-Stack Engineer (React & Node.js)
+Company: Aironauts Technologies
+Location: Remote (US / Europe / Flexible)
+Seniority: Senior Level (5+ years experience)
+Salary Range: $130,000 - $170,000 USD
+
+About the Role:
+We are seeking an exceptional Senior Full-Stack Engineer to architect and build our next-generation AI recruitment and hiring workflow automation platforms. In this role, you will lead the development of high-performance web applications, resilient background job processing pipelines, and conversational AI interfaces.
+
+Key Responsibilities:
+- Build modern, interactive user interfaces with React 18, TypeScript, and Tailwind CSS.
+- Architect scalable backend microservices and REST APIs using Node.js, Express, and TypeScript.
+- Design resilient asynchronous task queues with BullMQ and Redis.
+- Model flexible recruitment data structures with MongoDB and Mongoose.
+- Integrate cutting-edge LLMs (Gemini, Claude, GPT) with function calling and tool orchestration.
+
+Requirements (Must-Have Skills):
+- React
+- TypeScript
+- Node.js
+- MongoDB
+- Redis / BullMQ
+
+Nice-To-Have Skills:
+- Next.js
+- Docker
+- GraphQL
+- Tailwind CSS
+- Server-Sent Events (SSE)
+

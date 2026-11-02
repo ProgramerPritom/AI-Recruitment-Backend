@@ -1,0 +1,12 @@
+Name,Email,Profile URL,Skills,Experience
+Sarah Jenkins,sarah.jenkins@example.com,https://linkedin.com/in/sarah-jenkins,"React, TypeScript, Node.js, MongoDB, Redis, Docker",7 years of full-stack engineering building high-throughput SaaS platforms.
+Rahim Chowdhury,rahim.chowdhury@example.com,https://linkedin.com/in/rahim-chowdhury,"React, TypeScript, Next.js, Tailwind CSS, GraphQL",5 years frontend leadership with modern React ecosystem.
+Alexei Petrov,alexei.petrov@example.com,https://linkedin.com/in/alexei-petrov,"Node.js, Express, MongoDB, Redis, BullMQ, Docker",6 years backend systems and distributed queue processing.
+Elena Rostova,elena.rostova@example.com,https://linkedin.com/in/elena-rostova,"React, JavaScript, CSS, HTML, Vue",3 years frontend UI development.
+Michael Chen,michael.chen@example.com,https://linkedin.com/in/michael-chen,"Java, Spring Boot, MySQL, Oracle",8 years enterprise Java software development.
+Priya Sharma,priya.sharma@example.com,https://linkedin.com/in/priya-sharma,"TypeScript, React, Node.js, AWS, Kubernetes",6 years full-stack cloud and containerized architecture.
+Marcus Becker,marcus.becker@example.com,https://linkedin.com/in/marcus-becker,"Python, Django, PostgreSQL, Docker",4 years backend web development.
+Fatima Zahra,fatima.zahra@example.com,https://linkedin.com/in/fatima-zahra,"React, TypeScript, Node.js, MongoDB",4 years full-stack engineer.
+Sarah Jenkins,sarah.jenkins@example.com,https://linkedin.com/in/sarah-jenkins,"React, TypeScript, Node.js",Duplicate row to verify deduplication engine.
+,invalid.empty@example.com,https://linkedin.com/in/missing-name,"React",Invalid row missing name to verify error reporting.
+
