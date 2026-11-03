@@ -12,11 +12,11 @@ import { processOutreachJob } from '../workers/outreach.worker';
 export const agentToolDeclarations: FunctionDeclaration[] = [
   {
     name: 'createJob',
-    description: 'Extract or create a new hiring job. If confirm=false, returns an editable job confirmation card. If confirm=true, persists the job.',
+    description: 'Extract or create a new hiring job. MUST be called whenever the user mentions needing or hiring for a role (e.g. "We need a Senior AI Engineer", "Hire a React developer"), pastes a JD, or provides job requirements. If confirm=false, returns an editable job confirmation card. If confirm=true, persists the job.',
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
-        rawContent: { type: SchemaType.STRING, description: 'Raw job description text or JD link' },
+        rawContent: { type: SchemaType.STRING, description: 'Raw job description text or requirements' },
         title: { type: SchemaType.STRING, description: 'Job title' },
         mustHaveSkills: {
           type: SchemaType.ARRAY,
@@ -147,9 +147,9 @@ export class AgentToolExecutor {
           const draft = await JobService.extractJobFromText(args.rawContent);
           return {
             requiresConfirmation: true,
-            cardType: 'job_confirmation',
+            cardType: 'job_draft',
             draft,
-            message: 'I have extracted the job requirements. Please review and confirm to create this job.',
+            message: `I have extracted the requirements for "${draft.title}". Please review the details below and confirm to create this job.`,
           };
         }
         const created = await JobService.createJob({

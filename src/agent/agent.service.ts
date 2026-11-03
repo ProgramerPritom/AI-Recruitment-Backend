@@ -43,6 +43,11 @@ export class AgentService {
     const executedToolCalls: Array<{ name: string; args: Record<string, any> }> = [];
     const executedToolResults: Array<{ name: string; result: Record<string, any> }> = [];
 
+    const isJobCreationIntent =
+      (/\b(we need|need|hire|hiring|looking for|create job|new job|post a job|open role|job description|jd)\b/i.test(userMessage) &&
+        /\b(engineer|developer|designer|manager|lead|architect|specialist|intern|senior|junior|mid|python|react|frontend|backend|full-stack|fullstack|devops|data|ai|ml|rag|llm)\b/i.test(userMessage)) ||
+      (userMessage.length > 40 && /\b(responsibilities|requirements|qualifications|years of experience|5\+\s*years)\b/i.test(userMessage));
+
     // 3. Call Gemini with Tool Calling if API key is provided
     if (config.GEMINI_API_KEY && config.GEMINI_API_KEY !== 'MOCK_KEY') {
       try {
@@ -60,13 +65,20 @@ export class AgentService {
           })),
         });
 
-        const promptText = jobId ? `[Active Job ID: ${jobId}]\n${userMessage}` : userMessage;
+        // Do not bind to active jobId if the user is clearly creating a new job role
+        const promptText = jobId && !isJobCreationIntent ? `[Active Job ID: ${jobId}]\n${userMessage}` : userMessage;
 
         const response = await callGeminiWithBackoff(async () => {
           return await chat.sendMessage(promptText);
         });
 
-        const functionCalls = response.response.functionCalls();
+        let functionCalls = response.response.functionCalls();
+
+        // Safety override: if user clearly asked to create/hire a role but Gemini called getJobStats due to prior history, correct to createJob
+        if (isJobCreationIntent && functionCalls && functionCalls.some((c) => c.name === 'getJobStats')) {
+          functionCalls = [{ name: 'createJob', args: { rawContent: userMessage, confirm: false } }];
+        }
+
         if (functionCalls && functionCalls.length > 0) {
           for (const call of functionCalls) {
             executedToolCalls.push({ name: call.name, args: call.args as any });
@@ -74,7 +86,7 @@ export class AgentService {
               const callArgs = (call.args as Record<string, any>) || {};
               const toolResult = await AgentToolExecutor.execute(call.name, {
                 ...callArgs,
-                ...(jobId && !callArgs.jobId ? { jobId } : {}),
+                ...(jobId && !callArgs.jobId && call.name !== 'createJob' ? { jobId } : {}),
               });
               executedToolResults.push({ name: call.name, result: toolResult });
 
@@ -101,7 +113,14 @@ export class AgentService {
     if (!assistantText) {
       const lower = userMessage.toLowerCase();
 
-      if (lower.includes('source') || lower.includes('find candidate')) {
+      if (
+        isJobCreationIntent ||
+        (userMessage.length > 40 && (lower.includes('engineer') || lower.includes('developer') || lower.includes('role') || lower.includes('job')))
+      ) {
+        const res = await AgentToolExecutor.execute('createJob', { rawContent: userMessage, confirm: false });
+        cardPayload = res;
+        assistantText = res.message;
+      } else if (lower.includes('source') || lower.includes('find candidate')) {
         if (jobId) {
           const res = await AgentToolExecutor.execute('startSourcing', { jobId, limit: 8 });
           cardPayload = res;
@@ -141,10 +160,6 @@ export class AgentService {
         } else {
           assistantText = 'Please select a job first to inspect candidate counts and pipeline statistics.';
         }
-      } else if (userMessage.length > 50 && (lower.includes('engineer') || lower.includes('developer') || lower.includes('role') || lower.includes('job'))) {
-        const res = await AgentToolExecutor.execute('createJob', { rawContent: userMessage, confirm: false });
-        cardPayload = res;
-        assistantText = res.message;
       } else {
         assistantText = `Hello! I'm your AI Recruiting Co-Worker. I can help you extract job descriptions, source candidates, review scores, generate email campaigns, and schedule meetings. How can I assist you right now?`;
       }

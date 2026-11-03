@@ -85,10 +85,20 @@ ${content}`;
     // Deterministic Heuristic Extraction Fallback (Ensures zero downtime/failure)
     const lines = content.split('\n').map((l) => l.trim()).filter(Boolean);
     const firstLine = lines[0] || 'Software Engineer';
-    const titleMatch = firstLine.replace(/^(Job Title|Position|Role):\s*/i, '');
+    
+    // Extract title from phrases like "We need a Senior AI Engineer to..." or "Position: Senior Engineer"
+    let titleMatch = firstLine.replace(/^(Job Title|Position|Role):\s*/i, '');
+    const titleRegexMatch = firstLine.match(/(?:we need|need|hire|hiring|looking for|create)\s+(?:a|an)?\s*([A-Za-z0-9\s\-/]+?)(?:\s+to|\s+with|\s+for|\.|\n|$)/i);
+    if (titleRegexMatch && titleRegexMatch[1] && titleRegexMatch[1].trim().length > 3) {
+      titleMatch = titleRegexMatch[1].trim();
+    }
 
     const detectedSkills: string[] = [];
-    const techCatalog = ['React', 'TypeScript', 'JavaScript', 'Node.js', 'Express', 'Python', 'Go', 'Docker', 'Kubernetes', 'MongoDB', 'PostgreSQL', 'Redis', 'AWS', 'GraphQL', 'Next.js', 'Tailwind', 'Vue', 'Angular', 'Java', 'C#'];
+    const techCatalog = [
+      'React', 'TypeScript', 'JavaScript', 'Node.js', 'Express', 'Python', 'PyTorch', 'RAG', 'LLM',
+      'LangChain', 'FastAPI', 'Go', 'Docker', 'Kubernetes', 'MongoDB', 'PostgreSQL', 'Redis',
+      'AWS', 'GraphQL', 'Next.js', 'Tailwind', 'Vue', 'Angular', 'Java', 'C#'
+    ];
     for (const tech of techCatalog) {
       const regex = new RegExp(`\\b${tech.replace('.', '\\.')}\\b`, 'i');
       if (regex.test(content)) {
