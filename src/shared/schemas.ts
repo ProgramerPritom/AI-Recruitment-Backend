@@ -7,6 +7,10 @@ export const CreateJobSchema = z.object({
   mustHaveSkills: z.array(z.string().trim().min(1)).min(1, 'At least one must-have skill is required'),
   niceToHaveSkills: z.array(z.string().trim().min(1)).default([]),
   seniority: z.string().trim().max(100).optional(),
+  experience: z.string().trim().max(100).optional(),
+  minExperienceYears: z.number().nonnegative().optional(),
+  responsibilities: z.array(z.string().trim()).optional().default([]),
+  qualifications: z.array(z.string().trim()).optional().default([]),
   location: z.string().trim().max(200).optional(),
   salaryRange: z
     .object({

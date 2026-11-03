@@ -154,11 +154,17 @@ export class AgentToolExecutor {
         }
         const created = await JobService.createJob({
           title: args.title || 'Software Engineer',
-          description: args.rawContent,
+          description: args.description || args.rawContent,
           mustHaveSkills: args.mustHaveSkills || ['TypeScript', 'React'],
           niceToHaveSkills: args.niceToHaveSkills || [],
           location: args.location || 'Remote',
           seniority: args.seniority || 'Senior',
+          experience: args.experience,
+          minExperienceYears: args.minExperienceYears,
+          responsibilities: args.responsibilities || [],
+          qualifications: args.qualifications || [],
+          salaryRange: args.salaryRange,
+          remotePolicy: args.remotePolicy || 'Remote',
         });
         return {
           success: true,

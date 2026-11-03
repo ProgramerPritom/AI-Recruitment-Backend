@@ -6,6 +6,10 @@ export interface IJob extends Document {
   mustHaveSkills: string[];
   niceToHaveSkills: string[];
   seniority?: string;
+  experience?: string;
+  minExperienceYears?: number;
+  responsibilities?: string[];
+  qualifications?: string[];
   location?: string;
   salaryRange?: {
     min?: number;
@@ -25,6 +29,10 @@ const JobSchema = new Schema<IJob>(
     mustHaveSkills: { type: [String], required: true, default: [] },
     niceToHaveSkills: { type: [String], default: [] },
     seniority: { type: String, trim: true },
+    experience: { type: String, trim: true },
+    minExperienceYears: { type: Number, min: 0 },
+    responsibilities: { type: [String], default: [] },
+    qualifications: { type: [String], default: [] },
     location: { type: String, trim: true },
     salaryRange: {
       min: { type: Number },
