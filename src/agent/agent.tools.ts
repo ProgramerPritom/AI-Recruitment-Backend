@@ -305,6 +305,7 @@ export class AgentToolExecutor {
           },
           meetingsBooked: totalMeetings,
           hires: totalHired,
+          message: `Currently, there are ${totalSourced} total candidates in the pipeline for this job:\n- Sourced: ${counts['sourced'] || 0}\n- Accepted: ${counts['accepted'] || 0}\n- Contacted: ${totalContacted}\n- Replied: ${totalReplied}\n- Meetings Booked: ${totalMeetings}\n- Hired: ${totalHired}\n\nReply Rate: ${replyRate}% | Interest Rate: ${interestedRate}%`,
         };
       }
 

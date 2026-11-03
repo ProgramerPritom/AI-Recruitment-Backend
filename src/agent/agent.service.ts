@@ -126,12 +126,20 @@ export class AgentService {
         } else {
           assistantText = 'Please select an active job first.';
         }
-      } else if (lower.includes('stat') || lower.includes('progress') || lower.includes('how is hiring')) {
+      } else if (
+        lower.includes('stat') ||
+        lower.includes('progress') ||
+        lower.includes('how is hiring') ||
+        lower.includes('how many') ||
+        lower.includes('applied') ||
+        lower.includes('applicant') ||
+        lower.includes('count')
+      ) {
         if (jobId) {
           const res = await AgentToolExecutor.execute('getJobStats', { jobId });
-          assistantText = `Hiring Progress Report:\n- Total Sourced: ${res.totalSourced}\n- Reply Rate: ${res.rates.replyRate}\n- Interested Rate: ${res.rates.interestedRate}\n- Meetings Booked: ${res.meetingsBooked}\n- Hires: ${res.hires}`;
+          assistantText = res.message || `Pipeline Status:\n- Total Candidates: ${res.totalSourced}\n- Meetings Booked: ${res.meetingsBooked}\n- Hires: ${res.hires}`;
         } else {
-          assistantText = 'Please select a job to inspect funnel statistics.';
+          assistantText = 'Please select a job first to inspect candidate counts and pipeline statistics.';
         }
       } else if (userMessage.length > 50 && (lower.includes('engineer') || lower.includes('developer') || lower.includes('role') || lower.includes('job'))) {
         const res = await AgentToolExecutor.execute('createJob', { rawContent: userMessage, confirm: false });
