@@ -212,6 +212,15 @@ ${content}`;
   public static async createJob(input: unknown): Promise<IJob> {
     const validated = CreateJobSchema.parse(input);
 
+    // Prevent rapid accidental double-submissions with identical title within 10 seconds
+    const recentDuplicate = await Job.findOne({
+      title: validated.title,
+      createdAt: { $gte: new Date(Date.now() - 10000) },
+    }).exec();
+    if (recentDuplicate) {
+      return recentDuplicate;
+    }
+
     const job = new Job({
       title: validated.title,
       description: validated.description,
@@ -238,6 +247,41 @@ ${content}`;
     });
 
     return savedJob;
+  }
+
+  public static async updateJob(jobId: string, input: unknown): Promise<IJob> {
+    const job = await Job.findById(jobId).exec();
+    if (!job) {
+      throw new AppError(`Job with ID ${jobId} not found`, 404, 'JOB_NOT_FOUND');
+    }
+
+    const validated = CreateJobSchema.partial().parse(input);
+    Object.assign(job, validated);
+    const updated = await job.save();
+
+    await ActivityService.record({
+      jobId: updated._id.toString(),
+      actor: 'recruiter',
+      action: 'Updated job requirements',
+      newValue: { title: updated.title, seniority: updated.seniority },
+    });
+
+    return updated;
+  }
+
+  public static async deleteJob(jobId: string): Promise<void> {
+    const job = await Job.findById(jobId).exec();
+    if (!job) {
+      throw new AppError(`Job with ID ${jobId} not found`, 404, 'JOB_NOT_FOUND');
+    }
+
+    await Job.findByIdAndDelete(jobId).exec();
+
+    await ActivityService.record({
+      jobId,
+      actor: 'recruiter',
+      action: `Deleted job requisition "${job.title}"`,
+    });
   }
 
   public static async getJobs(): Promise<IJob[]> {

@@ -46,4 +46,24 @@ export class JobController {
       next(err);
     }
   }
+
+  public static async update(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { jobId } = req.params;
+      const updated = await JobService.updateJob(jobId as string, req.body);
+      res.status(200).json({ message: 'Job updated successfully', data: updated });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  public static async delete(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { jobId } = req.params;
+      await JobService.deleteJob(jobId as string);
+      res.status(200).json({ message: 'Job deleted successfully' });
+    } catch (err) {
+      next(err);
+    }
+  }
 }

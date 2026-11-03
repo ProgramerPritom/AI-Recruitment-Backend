@@ -7,6 +7,8 @@ router.post('/jobs/extract', JobController.extract);
 router.post('/jobs', JobController.create);
 router.get('/jobs', JobController.getAll);
 router.get('/jobs/:jobId', JobController.getById);
+router.put('/jobs/:jobId', JobController.update);
+router.delete('/jobs/:jobId', JobController.delete);
 
 export default router;
 
