@@ -2,12 +2,25 @@ import { createApp } from './app';
 import { config } from './config';
 import { connectDatabase, disconnectDatabase } from './config/database';
 import { disconnectRedis } from './config/redis';
+import { startSourcingWorker } from './workers/sourcing.worker';
+import { startScoringWorker } from './workers/scoring.worker';
+import { startOutreachWorker } from './workers/outreach.worker';
 
 async function bootstrap() {
   console.log(`[Bootstrap] Starting Aironauts Backend in ${config.NODE_ENV} mode...`);
 
   // Connect to Database
   await connectDatabase();
+
+  // Initialize BullMQ Workers for Redis Queues
+  try {
+    startSourcingWorker();
+    startScoringWorker();
+    startOutreachWorker();
+    console.log('[Workers] BullMQ asynchronous queue workers initialized.');
+  } catch (workerErr: any) {
+    console.warn('[Workers] BullMQ worker startup warning:', workerErr.message);
+  }
 
   const app = createApp();
 
