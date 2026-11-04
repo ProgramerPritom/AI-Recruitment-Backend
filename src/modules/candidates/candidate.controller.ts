@@ -105,4 +105,35 @@ export class CandidateController {
       next(err);
     }
   }
+
+  public static async deleteCandidate(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const candidateId = req.params.candidateId as string;
+      const result = await CandidateService.deleteCandidate(candidateId);
+      res.status(200).json({
+        message: `Candidate "${result.candidateName}" permanently deleted`,
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  public static async bulkDelete(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const jobId = req.params.jobId as string;
+      const { candidateIds } = req.body;
+      if (!Array.isArray(candidateIds) || candidateIds.length === 0) {
+        throw new AppError('Candidate IDs must be a non-empty array', 400, 'INVALID_INPUT');
+      }
+
+      const result = await CandidateService.bulkDelete(jobId, candidateIds);
+      res.status(200).json({
+        message: `Successfully deleted ${result.deletedCount} candidates`,
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
 }

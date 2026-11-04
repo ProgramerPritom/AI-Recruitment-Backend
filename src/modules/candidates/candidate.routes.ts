@@ -14,7 +14,9 @@ router.post('/jobs/:jobId/candidates/upload-cv', upload.single('file'), Candidat
 router.post('/jobs/:jobId/candidates/parse-cv', CandidateController.parseAndAddCv);
 router.get('/jobs/:jobId/candidates', CandidateController.getByJobId);
 router.patch('/candidates/:candidateId/status', CandidateController.updateStatus);
+router.delete('/candidates/:candidateId', CandidateController.deleteCandidate);
 router.post('/jobs/:jobId/candidates/bulk-review', CandidateController.bulkReview);
+router.post('/jobs/:jobId/candidates/bulk-delete', CandidateController.bulkDelete);
 
 export default router;
 

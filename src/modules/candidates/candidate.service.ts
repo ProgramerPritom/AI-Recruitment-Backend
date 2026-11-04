@@ -556,5 +556,64 @@ export class CandidateService {
       updatedCandidates,
     };
   }
+
+  /**
+   * Permanently delete candidate from MongoDB and record audit trail
+   */
+  public static async deleteCandidate(
+    candidateId: string,
+    actor: 'recruiter' | 'agent' | 'system' = 'recruiter'
+  ): Promise<{ success: boolean; deletedCandidateId: string; candidateName: string }> {
+    const candidate = await Candidate.findById(candidateId).exec();
+    if (!candidate) {
+      throw new AppError(`Candidate with ID ${candidateId} not found`, 404, 'CANDIDATE_NOT_FOUND');
+    }
+
+    const candidateName = candidate.name;
+    const jobId = candidate.jobId.toString();
+
+    await Candidate.findByIdAndDelete(candidateId).exec();
+
+    await ActivityService.record({
+      jobId,
+      actor,
+      action: `Permanently removed candidate "${candidateName}" from recruitment workspace`,
+      previousValue: { candidateId, name: candidateName, status: candidate.status },
+    });
+
+    return {
+      success: true,
+      deletedCandidateId: candidateId,
+      candidateName,
+    };
+  }
+
+  /**
+   * Bulk delete candidates from MongoDB
+   */
+  public static async bulkDelete(
+    jobId: string,
+    candidateIds: string[],
+    actor: 'recruiter' | 'agent' = 'recruiter'
+  ): Promise<{ deletedCount: number }> {
+    const jobObjectId = new mongoosePackage.Types.ObjectId(jobId);
+    const validObjectIds = candidateIds.map((id) => new mongoosePackage.Types.ObjectId(id));
+
+    const result = await Candidate.deleteMany({
+      _id: { $in: validObjectIds },
+      jobId: jobObjectId,
+    }).exec();
+
+    await ActivityService.record({
+      jobId,
+      actor,
+      action: `Bulk deleted ${result.deletedCount} candidates from recruitment workspace`,
+      newValue: { deletedCount: result.deletedCount },
+    });
+
+    return {
+      deletedCount: result.deletedCount,
+    };
+  }
 }
 

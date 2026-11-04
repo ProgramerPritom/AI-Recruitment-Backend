@@ -42,7 +42,7 @@ const STATUS_TRANSITIONS: Record<CandidateStatus, CandidateStatus[]> = {
   interviewed: ['shortlisted', 'rejected', 'unsubscribed'],
   shortlisted: ['hired', 'rejected', 'unsubscribed'],
   hired: [], // Terminal status
-  rejected: ['accepted'], // Allow recruiter reconsideration
+  rejected: ['accepted', 'sourced'], // Allow recruiter reconsideration or restoring
   unsubscribed: [], // Terminal blacklist status - no further outreach
 };
 
