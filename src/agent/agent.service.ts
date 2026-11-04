@@ -44,9 +44,9 @@ export class AgentService {
     const executedToolResults: Array<{ name: string; result: Record<string, any> }> = [];
 
     const isJobCreationIntent =
-      (/\b(we need|need|hire|hiring|looking for|create job|new job|post a job|open role|job description|jd)\b/i.test(userMessage) &&
-        /\b(engineer|developer|designer|manager|lead|architect|specialist|intern|senior|junior|mid|python|react|frontend|backend|full-stack|fullstack|devops|data|ai|ml|rag|llm)\b/i.test(userMessage)) ||
-      (userMessage.length > 40 && /\b(responsibilities|requirements|qualifications|years of experience|5\+\s*years)\b/i.test(userMessage));
+      (/\b(want|i want|we want|we need|need|hire|hiring|looking for|create job|new job|post a job|open role|job description|jd|lagbe|dorkar|khujchi|chai)\b/i.test(userMessage) &&
+        /\b(engineer|developer|designer|manager|lead|architect|specialist|intern|senior|junior|mid|python|react|frontend|backend|full-stack|fullstack|devops|data|ai|ml|rag|llm|mern|node|software)\b/i.test(userMessage)) ||
+      (userMessage.length > 25 && /\b(responsibilities|requirements|qualifications|years?(\s+of)?\s+experience|\d+\s*\+?\s*years?)\b/i.test(userMessage));
 
     // 3. Call Gemini with Tool Calling if API key is provided
     if (config.GEMINI_API_KEY && config.GEMINI_API_KEY !== 'MOCK_KEY') {
@@ -116,7 +116,7 @@ export class AgentService {
 
       if (
         isJobCreationIntent ||
-        (userMessage.length > 40 && (lower.includes('engineer') || lower.includes('developer') || lower.includes('role') || lower.includes('job')))
+        (userMessage.length > 20 && (lower.includes('engineer') || lower.includes('developer') || lower.includes('role') || lower.includes('job') || lower.includes('mern') || lower.includes('ai')))
       ) {
         const res = await AgentToolExecutor.execute('createJob', { rawContent: userMessage, confirm: false });
         cardPayload = res;

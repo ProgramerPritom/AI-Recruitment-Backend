@@ -26,6 +26,60 @@ export interface ExtractedJobDraft {
 
 export class JobService {
   /**
+   * Cleans conversational user prompts or raw JD headers into a crisp, standardized job title
+   * (e.g. "I want Senior AI Engineer which have 7 years + experience and have MERN Stack Technology."
+   * -> "Senior AI Engineer (MERN Stack)")
+   */
+  public static cleanExtractedJobTitle(raw: string): string {
+    if (!raw) return 'Senior Software Engineer';
+    let text = raw.trim();
+
+    // 1. Direct standard role matching
+    const standardRoles = [
+      { pattern: /\b(senior\s+ai\s+engineer)\b/i, title: 'Senior AI Engineer' },
+      { pattern: /\b(lead\s+ai\s+engineer)\b/i, title: 'Lead AI Engineer' },
+      { pattern: /\b(ai\s+engineer)\b/i, title: 'AI Engineer' },
+      { pattern: /\b(machine\s+learning\s+engineer|ml\s+engineer)\b/i, title: 'Machine Learning Engineer' },
+      { pattern: /\b(senior\s+full-?stack\s+(?:engineer|developer))\b/i, title: 'Senior Full-Stack Engineer' },
+      { pattern: /\b(full-?stack\s+(?:engineer|developer))\b/i, title: 'Full-Stack Engineer' },
+      { pattern: /\b(senior\s+backend\s+(?:engineer|developer))\b/i, title: 'Senior Backend Engineer' },
+      { pattern: /\b(backend\s+(?:engineer|developer))\b/i, title: 'Backend Engineer' },
+      { pattern: /\b(senior\s+frontend\s+(?:engineer|developer))\b/i, title: 'Senior Frontend Engineer' },
+      { pattern: /\b(frontend\s+(?:engineer|developer))\b/i, title: 'Frontend Engineer' },
+      { pattern: /\b(mern\s+stack\s+(?:developer|engineer))\b/i, title: 'MERN Stack Engineer' },
+      { pattern: /\b(devops\s+engineer)\b/i, title: 'DevOps Engineer' },
+      { pattern: /\b(data\s+engineer)\b/i, title: 'Data Engineer' },
+      { pattern: /\b(cloud\s+architect)\b/i, title: 'Cloud Architect' },
+      { pattern: /\b(software\s+architect)\b/i, title: 'Software Architect' },
+    ];
+
+    for (const item of standardRoles) {
+      if (item.pattern.test(text)) {
+        if (/mern/i.test(text) && !item.title.includes('MERN')) {
+          return `${item.title} (MERN Stack)`;
+        }
+        return item.title;
+      }
+    }
+
+    // 2. Strip conversational prefixes
+    text = text.replace(/^(?:i\s+want|we\s+want|looking\s+for|we\s+need|need\s+a|need|hiring\s+for|hire\s+a|hire|create\s+a|create|seeking|job\s+for|role\s*:|position\s*:|title\s*:)\s+(?:a|an)?\s*/i, '');
+
+    // 3. Strip trailing clauses
+    text = text.replace(/\s+(?:which\s+have|who\s+has|with|having|that\s+has|and\s+have|\d+\s*\+?\s*years?|\(?\d+\+?\s*years?\)?).*$/i, '');
+
+    // 4. Clean parentheticals & punctuation
+    text = text.replace(/\s*\([^)]*\)/g, '').replace(/[.,;:]/g, ' ').replace(/\s+/g, ' ').trim();
+
+    // 5. Title Case
+    if (text.length >= 3 && text.length <= 40) {
+      return text.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.substr(1).toLowerCase());
+    }
+
+    return 'Senior Software Engineer';
+  }
+
+  /**
    * Extract structured requirements from raw text without saving to the database
    */
   public static async extractJobFromText(content: string, _isUrl = false): Promise<ExtractedJobDraft> {
@@ -135,13 +189,8 @@ ${content}`;
     const lines = content.split('\n').map((l) => l.trim()).filter(Boolean);
     const firstLine = lines[0] || 'Software Engineer';
 
-    let titleMatch = firstLine.replace(/^(Job Title|Position|Role):\s*/i, '');
-    const titleRegexMatch = firstLine.match(
-      /(?:we need|need|hire|hiring|looking for|create)\s+(?:a|an)?\s*([A-Za-z0-9\s\-/]+?)(?:\s+to|\s+with|\s+for|\.|\n|$)/i
-    );
-    if (titleRegexMatch && titleRegexMatch[1] && titleRegexMatch[1].trim().length > 3) {
-      titleMatch = titleRegexMatch[1].trim();
-    }
+    // Clean conversational fluff into a crisp, standardized job title
+    const titleMatch = this.cleanExtractedJobTitle(firstLine || content);
 
     // Extract experience years
     let minExperienceYears = 3;
@@ -167,6 +216,17 @@ ${content}`;
     else if (minExperienceYears <= 2 || /junior|intern|associate/i.test(content)) seniority = 'Junior';
 
     const detectedSkills: string[] = [];
+
+    // MERN stack bundle detection
+    if (/mern/i.test(content)) {
+      detectedSkills.push('React', 'Node.js', 'MongoDB', 'Express', 'JavaScript');
+    }
+
+    // AI & ML bundle detection
+    if (/\b(ai|llm|rag|machine learning|deep learning)\b/i.test(content)) {
+      detectedSkills.push('Python', 'PyTorch', 'LangChain', 'FastAPI');
+    }
+
     const techCatalog = [
       'React', 'TypeScript', 'JavaScript', 'Node.js', 'Express', 'Python', 'PyTorch', 'RAG', 'LLM',
       'LangChain', 'FastAPI', 'Go', 'Docker', 'Kubernetes', 'MongoDB', 'PostgreSQL', 'Redis',
@@ -174,7 +234,7 @@ ${content}`;
     ];
     for (const tech of techCatalog) {
       const regex = new RegExp(`\\b${tech.replace('.', '\\.')}\\b`, 'i');
-      if (regex.test(content)) {
+      if (regex.test(content) && !detectedSkills.includes(tech)) {
         detectedSkills.push(tech);
       }
     }
@@ -183,7 +243,7 @@ ${content}`;
     const niceToHave = detectedSkills.slice(4);
 
     return {
-      title: titleMatch.length > 5 ? titleMatch : 'Senior Software Engineer',
+      title: titleMatch,
       seniority,
       experience,
       minExperienceYears,
