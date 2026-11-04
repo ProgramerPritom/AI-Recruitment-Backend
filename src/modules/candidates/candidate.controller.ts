@@ -21,6 +21,20 @@ export class CandidateController {
     }
   }
 
+  public static async parseAndAddCv(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const jobId = req.params.jobId as string;
+      const { rawCvText } = req.body;
+      const result = await CandidateService.parseAndAddCv(jobId, rawCvText);
+      res.status(200).json({
+        message: `Successfully parsed CV for "${result.candidate.name}", extracted skills, and scored match (${result.score}%)`,
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   public static async getByJobId(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const jobId = req.params.jobId as string;
