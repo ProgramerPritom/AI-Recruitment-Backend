@@ -1,6 +1,6 @@
 import { IJob } from '../jobs/job.model';
 import { ICandidate } from './candidate.model';
-import { getGeminiClient, callGeminiWithBackoff } from '../../integrations/gemini/geminiClient';
+import { getGeminiClient, callGeminiWithModelFallback } from '../../integrations/gemini/geminiClient';
 import { config } from '../../config';
 
 export interface ScoreResult {
@@ -16,12 +16,6 @@ export class ScoringEngine {
     if (config.GEMINI_API_KEY && config.GEMINI_API_KEY !== 'MOCK_KEY') {
       try {
         const client = getGeminiClient();
-        const model = client.getGenerativeModel({
-          model: config.GEMINI_MODEL,
-          generationConfig: {
-            responseMimeType: 'application/json',
-          },
-        });
 
         const prompt = `You are an objective AI technical recruiter. Evaluate the following candidate strictly against the job requirements.
 Scoring Rubric:
@@ -51,7 +45,13 @@ Name: ${candidate.name}
 Skills: ${candidate.skills.join(', ')}
 Summary: ${candidate.experienceSummary || 'No summary provided.'}`;
 
-        const raw = await callGeminiWithBackoff(async () => {
+        const raw = await callGeminiWithModelFallback(async (modelName) => {
+          const model = client.getGenerativeModel({
+            model: modelName,
+            generationConfig: {
+              responseMimeType: 'application/json',
+            },
+          });
           const res = await model.generateContent(prompt);
           return res.response.text();
         });

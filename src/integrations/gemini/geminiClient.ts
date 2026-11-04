@@ -41,3 +41,41 @@ export async function callGeminiWithBackoff<T>(
   throw new Error('Gemini API maximum retries exceeded');
 }
 
+/**
+ * Execute Gemini call with multi-model fallback cascade.
+ * If the primary model hits a 429 quota exhaustion or fails, it cascades through fallback candidate models.
+ */
+export async function callGeminiWithModelFallback<T>(
+  fn: (modelName: string) => Promise<T>,
+  customCandidates?: string[]
+): Promise<T> {
+  const candidates = Array.from(
+    new Set([config.GEMINI_MODEL, ...(customCandidates || config.GEMINI_FALLBACK_MODELS || [])].filter(Boolean))
+  );
+
+  let lastError: any = null;
+
+  for (const modelName of candidates) {
+    try {
+      return await callGeminiWithBackoff(async () => {
+        return await fn(modelName);
+      }, 2, 800);
+    } catch (error: any) {
+      lastError = error;
+      const isQuotaOrRateLimit =
+        error?.status === 429 ||
+        error?.message?.includes('429') ||
+        error?.message?.includes('RESOURCE_EXHAUSTED') ||
+        error?.message?.includes('Quota exceeded') ||
+        error?.message?.includes('quota');
+
+      console.warn(
+        `[Gemini Fallback] Model '${modelName}' failed (${isQuotaOrRateLimit ? 'Rate/Quota limit' : error?.message?.substring(0, 100)}). Cascading to next candidate...`
+      );
+    }
+  }
+
+  throw lastError || new Error('All candidate Gemini models failed.');
+}
+
+

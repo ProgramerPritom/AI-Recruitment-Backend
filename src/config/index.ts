@@ -12,6 +12,10 @@ const envSchema = z.object({
   REDIS_PASSWORD: z.string().optional(),
   GEMINI_API_KEY: z.string().optional().default(''),
   GEMINI_MODEL: z.string().default('gemini-2.5-flash'),
+  GEMINI_FALLBACK_MODELS: z
+    .string()
+    .default('gemini-2.5-flash-lite,gemini-3.5-flash')
+    .transform((val) => val.split(',').map((s) => s.trim()).filter(Boolean)),
   SERPER_API_KEY: z.string().optional().default(''),
   EMAIL_PROVIDER: z.enum(['mock', 'smtp']).default('mock'),
   SMTP_HOST: z.string().optional(),

@@ -2,7 +2,7 @@ import { Job, IJob } from './job.model';
 import { CreateJobSchema } from '../../shared/schemas';
 import { AppError } from '../../middleware/errorHandler';
 import { ActivityService } from '../activity/activity.service';
-import { getGeminiClient, callGeminiWithBackoff } from '../../integrations/gemini/geminiClient';
+import { getGeminiClient, callGeminiWithModelFallback } from '../../integrations/gemini/geminiClient';
 import { config } from '../../config';
 
 export interface ExtractedJobDraft {
@@ -37,12 +37,6 @@ export class JobService {
     if (config.GEMINI_API_KEY && config.GEMINI_API_KEY !== 'MOCK_KEY') {
       try {
         const client = getGeminiClient();
-        const model = client.getGenerativeModel({
-          model: config.GEMINI_MODEL,
-          generationConfig: {
-            responseMimeType: 'application/json',
-          },
-        });
 
         const prompt = `You are a Principal Technical Recruiter and Staff Talent Architect.
 Analyze the following user input or Job Description brief with high precision.
@@ -81,7 +75,13 @@ STRICT EXTRACTION RULES:
 Input Job Brief:
 ${content}`;
 
-        const result = await callGeminiWithBackoff(async () => {
+        const result = await callGeminiWithModelFallback(async (modelName) => {
+          const model = client.getGenerativeModel({
+            model: modelName,
+            generationConfig: {
+              responseMimeType: 'application/json',
+            },
+          });
           const response = await model.generateContent(prompt);
           return response.response.text();
         });

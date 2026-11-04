@@ -3,7 +3,7 @@ import { Candidate } from '../candidates/candidate.model';
 import { Job } from '../jobs/job.model';
 import { Meeting } from '../meetings/meeting.model';
 import { CampaignDelivery } from '../campaigns/campaignDelivery.model';
-import { getGeminiClient, callGeminiWithBackoff } from '../../integrations/gemini/geminiClient';
+import { getGeminiClient, callGeminiWithModelFallback } from '../../integrations/gemini/geminiClient';
 import { config } from '../../config';
 import { AppError } from '../../middleware/errorHandler';
 
@@ -117,7 +117,6 @@ export class AnalyticsService {
     if (config.GEMINI_API_KEY && config.GEMINI_API_KEY !== 'MOCK_KEY') {
       try {
         const client = getGeminiClient();
-        const model = client.getGenerativeModel({ model: config.GEMINI_MODEL });
 
         const prompt = `You are a Senior Talent Partner. Write a concise, 3-bullet executive summary of the recruitment progress for this role.
 Use the exact numbers provided below. Do not fabricate any numbers.
@@ -135,7 +134,8 @@ Interested Rate: ${stats.metrics.interestedRate}%
 
 Format: 3 clear, actionable bullet points analyzing funnel velocity, conversion health, and immediate next recommendation.`;
 
-        const summaryText = await callGeminiWithBackoff(async () => {
+        const summaryText = await callGeminiWithModelFallback(async (modelName) => {
+          const model = client.getGenerativeModel({ model: modelName });
           const res = await model.generateContent(prompt);
           return res.response.text();
         });

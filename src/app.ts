@@ -2,6 +2,7 @@ import express, { Application, Request, Response } from 'express';
 import cors from 'cors';
 import mongoose from 'mongoose';
 import { getRedisClient } from './config/redis';
+import { config } from './config';
 import { errorHandler } from './middleware/errorHandler';
 
 import jobRoutes from './modules/jobs/job.routes';
@@ -45,6 +46,67 @@ export function createApp(): Application {
 
   app.get('/health', healthHandler);
   app.get('/api/health', healthHandler);
+
+  // System & Provider Diagnostic Endpoint
+  app.get('/api/system/serper-status', async (req: Request, res: Response) => {
+    const hasKey = Boolean(config.SERPER_API_KEY && config.SERPER_API_KEY.trim().length > 0);
+    const maskedKey = hasKey
+      ? `${config.SERPER_API_KEY.substring(0, 4)}...${config.SERPER_API_KEY.substring(config.SERPER_API_KEY.length - 4)}`
+      : null;
+
+    if (!hasKey) {
+      return res.status(200).json({
+        configured: false,
+        provider: 'mock',
+        message: 'SERPER_API_KEY is not configured in .env',
+      });
+    }
+
+    if (req.query.test === 'true') {
+      try {
+        const response = await fetch('https://google.serper.dev/search', {
+          method: 'POST',
+          headers: {
+            'X-API-KEY': config.SERPER_API_KEY.trim(),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ q: 'Senior AI Engineer LinkedIn', num: 1 }),
+        });
+        const data = (await response.json()) as any;
+        if (!response.ok) {
+          return res.status(200).json({
+            configured: true,
+            live: false,
+            statusCode: response.status,
+            message: `Serper returned ${response.status}: ${data.message || 'Unauthorized'}. Verify your account email on serper.dev or get key from serper.dev/api-keys`,
+            maskedKey,
+          });
+        }
+        return res.status(200).json({
+          configured: true,
+          live: true,
+          statusCode: 200,
+          message: 'Serper Dev API connected and verified successfully!',
+          creditsUsed: data.credits || 1,
+          maskedKey,
+        });
+      } catch (err: any) {
+        return res.status(200).json({
+          configured: true,
+          live: false,
+          message: `Network error reaching Serper: ${err.message}`,
+          maskedKey,
+        });
+      }
+    }
+
+    return res.status(200).json({
+      configured: true,
+      provider: 'Google Serper Dev',
+      maskedKey,
+      checkUrl: '/api/system/serper-status?test=true',
+    });
+  });
 
   // API Routes
   app.use('/api', jobRoutes);

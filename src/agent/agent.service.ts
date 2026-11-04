@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import { ChatMessage, IChatMessage } from '../modules/chat/chat.model';
 import { AGENT_SYSTEM_PROMPT } from './agent.prompts';
 import { agentToolDeclarations, AgentToolExecutor } from './agent.tools';
-import { getGeminiClient, callGeminiWithBackoff } from '../integrations/gemini/geminiClient';
+import { getGeminiClient, callGeminiWithModelFallback } from '../integrations/gemini/geminiClient';
 import { config } from '../config';
 
 export interface AgentChatResponse {
@@ -52,23 +52,24 @@ export class AgentService {
     if (config.GEMINI_API_KEY && config.GEMINI_API_KEY !== 'MOCK_KEY') {
       try {
         const client = getGeminiClient();
-        const model = client.getGenerativeModel({
-          model: config.GEMINI_MODEL,
-          systemInstruction: AGENT_SYSTEM_PROMPT,
-          tools: [{ functionDeclarations: agentToolDeclarations }],
-        });
-
-        const chat = model.startChat({
-          history: history.slice(0, -1).map((msg) => ({
-            role: msg.role === 'assistant' ? 'model' : 'user',
-            parts: [{ text: msg.content }],
-          })),
-        });
 
         // Do not bind to active jobId if the user is clearly creating a new job role
         const promptText = jobId && !isJobCreationIntent ? `[Active Job ID: ${jobId}]\n${userMessage}` : userMessage;
 
-        const response = await callGeminiWithBackoff(async () => {
+        const response = await callGeminiWithModelFallback(async (modelName) => {
+          const model = client.getGenerativeModel({
+            model: modelName,
+            systemInstruction: AGENT_SYSTEM_PROMPT,
+            tools: [{ functionDeclarations: agentToolDeclarations }],
+          });
+
+          const chat = model.startChat({
+            history: history.slice(0, -1).map((msg) => ({
+              role: msg.role === 'assistant' ? 'model' : 'user',
+              parts: [{ text: msg.content }],
+            })),
+          });
+
           return await chat.sendMessage(promptText);
         });
 

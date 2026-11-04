@@ -5,7 +5,7 @@ import { Job } from '../jobs/job.model';
 import { CandidateService } from '../candidates/candidate.service';
 import { ActivityService } from '../activity/activity.service';
 import { EmailProvider } from '../../integrations/email/emailProvider';
-import { getGeminiClient, callGeminiWithBackoff } from '../../integrations/gemini/geminiClient';
+import { getGeminiClient, callGeminiWithModelFallback } from '../../integrations/gemini/geminiClient';
 import { config } from '../../config';
 import { AppError } from '../../middleware/errorHandler';
 
@@ -27,10 +27,6 @@ export class ReplyService {
     if (config.GEMINI_API_KEY && config.GEMINI_API_KEY !== 'MOCK_KEY') {
       try {
         const client = getGeminiClient();
-        const model = client.getGenerativeModel({
-          model: config.GEMINI_MODEL,
-          generationConfig: { responseMimeType: 'application/json' },
-        });
 
         const prompt = `You are an AI recruitment co-worker. Classify the following candidate reply into exactly one of these 5 categories:
 - "Interested"
@@ -49,7 +45,11 @@ JSON format:
 Candidate Reply Content:
 "${content}"`;
 
-        const raw = await callGeminiWithBackoff(async () => {
+        const raw = await callGeminiWithModelFallback(async (modelName) => {
+          const model = client.getGenerativeModel({
+            model: modelName,
+            generationConfig: { responseMimeType: 'application/json' },
+          });
           const res = await model.generateContent(prompt);
           return res.response.text();
         });

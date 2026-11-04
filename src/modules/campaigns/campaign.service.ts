@@ -6,7 +6,7 @@ import { Candidate } from '../candidates/candidate.model';
 import { Job } from '../jobs/job.model';
 import { AppError } from '../../middleware/errorHandler';
 import { ActivityService } from '../activity/activity.service';
-import { getGeminiClient, callGeminiWithBackoff } from '../../integrations/gemini/geminiClient';
+import { getGeminiClient, callGeminiWithModelFallback } from '../../integrations/gemini/geminiClient';
 import { config } from '../../config';
 
 export class CampaignService {
@@ -50,10 +50,6 @@ export class CampaignService {
     if (config.GEMINI_API_KEY && config.GEMINI_API_KEY !== 'MOCK_KEY') {
       try {
         const client = getGeminiClient();
-        const model = client.getGenerativeModel({
-          model: config.GEMINI_MODEL,
-          generationConfig: { responseMimeType: 'application/json' },
-        });
 
         const prompt = `You are an elite executive recruiter crafting an email outreach campaign for the role of "${job.title}".
 Generate a 3-step sequence in JSON format matching this schema:
@@ -84,7 +80,11 @@ Role: ${job.title}
 Key Skills: ${job.mustHaveSkills.join(', ')}
 Location: ${job.location || 'Remote'}`;
 
-        const raw = await callGeminiWithBackoff(async () => {
+        const raw = await callGeminiWithModelFallback(async (modelName) => {
+          const model = client.getGenerativeModel({
+            model: modelName,
+            generationConfig: { responseMimeType: 'application/json' },
+          });
           const res = await model.generateContent(prompt);
           return res.response.text();
         });
