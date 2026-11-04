@@ -19,8 +19,10 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "ioredis": "^5.4.2",
+    "mammoth": "^1.13.0",
     "mongoose": "^8.9.5",
     "multer": "^1.4.5-lts.1",
+    "pdf-parse": "^2.4.5",
     "zod": "^3.24.1"
   },
   "devDependencies": {
@@ -28,9 +30,9 @@
     "@types/express": "^5.0.0",
     "@types/multer": "^1.4.12",
     "@types/node": "^22.10.7",
+    "@types/pdf-parse": "^1.1.5",
     "rimraf": "^6.0.1",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.7.3"
   }
 }
-

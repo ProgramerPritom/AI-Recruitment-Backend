@@ -228,6 +228,73 @@ export class CandidateService {
   }
 
   /**
+   * Universal CV & Candidate document importer:
+   * Supports PDF (.pdf), Word (.docx, .doc), Plain Text (.txt), and bulk applicant sheets (.csv).
+   */
+  public static async importCandidateFile(
+    jobId: string,
+    fileBuffer: Buffer,
+    filename: string = '',
+    mimetype: string = ''
+  ): Promise<CsvImportSummary> {
+    const ext = filename.split('.').pop()?.toLowerCase() || '';
+
+    // 1. PDF Document (.pdf)
+    if (ext === 'pdf' || mimetype === 'application/pdf') {
+      try {
+        const { PDFParse } = require('pdf-parse');
+        const parser = new PDFParse({ data: fileBuffer });
+        const textResult = await parser.getText();
+        let extractedText = '';
+        if (typeof textResult === 'string') {
+          extractedText = textResult;
+        } else if (textResult && typeof textResult.text === 'string') {
+          extractedText = textResult.text;
+        } else if (textResult && textResult.pages) {
+          extractedText = textResult.pages.map((p: any) => p.text || '').join('\n');
+        }
+
+        if (extractedText && extractedText.trim().length > 15) {
+          const cvResult = await this.parseAndAddCv(jobId, extractedText);
+          return {
+            importedCount: cvResult.isDuplicate ? 0 : 1,
+            duplicateCount: cvResult.isDuplicate ? 1 : 0,
+            failedCount: 0,
+            failedRows: [],
+            candidates: cvResult.isDuplicate ? [] : [cvResult.candidate],
+          };
+        }
+      } catch (pdfErr: any) {
+        console.warn(`[CandidateService] PDF extraction failed: ${pdfErr.message}`);
+      }
+    }
+
+    // 2. Word Document (.docx, .doc)
+    if (ext === 'docx' || ext === 'doc' || mimetype.includes('word') || mimetype.includes('officedocument')) {
+      try {
+        const mammoth = require('mammoth');
+        const res = await mammoth.extractRawText({ buffer: fileBuffer });
+        const docxText = res.value || '';
+        if (docxText && docxText.trim().length > 15) {
+          const cvResult = await this.parseAndAddCv(jobId, docxText);
+          return {
+            importedCount: cvResult.isDuplicate ? 0 : 1,
+            duplicateCount: cvResult.isDuplicate ? 1 : 0,
+            failedCount: 0,
+            failedRows: [],
+            candidates: cvResult.isDuplicate ? [] : [cvResult.candidate],
+          };
+        }
+      } catch (wordErr: any) {
+        console.warn(`[CandidateService] Word extraction failed: ${wordErr.message}`);
+      }
+    }
+
+    // 3. Fallback: CSV or TXT
+    return this.importFromCsv(jobId, fileBuffer);
+  }
+
+  /**
    * Parse CSV stream, validate rows, deduplicate, persist, and automatically run AI scoring
    */
   public static async importFromCsv(jobId: string, fileBuffer: Buffer): Promise<CsvImportSummary> {

@@ -4,22 +4,35 @@ import { UpdateCandidateStatusSchema, BulkReviewCandidatesSchema } from '../../s
 import { AppError } from '../../middleware/errorHandler';
 
 export class CandidateController {
-  public static async importCsv(req: Request, res: Response, next: NextFunction): Promise<void> {
+  public static async importFile(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const jobId = req.params.jobId as string;
       if (!req.file || !req.file.buffer) {
-        throw new AppError('Please provide a valid CSV file.', 400, 'FILE_REQUIRED');
+        throw new AppError('Please provide a valid CV file (PDF, Word, TXT, or CSV).', 400, 'FILE_REQUIRED');
       }
 
-      const summary = await CandidateService.importFromCsv(jobId, req.file.buffer);
+      const summary = await CandidateService.importCandidateFile(
+        jobId,
+        req.file.buffer,
+        req.file.originalname,
+        req.file.mimetype
+      );
+
       res.status(200).json({
-        message: `Successfully processed CSV. Imported ${summary.importedCount} new candidates, detected ${summary.duplicateCount} duplicates.`,
+        message: summary.importedCount > 0
+          ? `Successfully processed and AI-evaluated ${summary.importedCount} candidate(s).`
+          : summary.duplicateCount > 0
+          ? 'Candidate already exists in this recruitment workspace.'
+          : 'Processed candidate file.',
         data: summary,
       });
     } catch (err) {
       next(err);
     }
   }
+
+  // Alias for backward compatibility
+  public static importCsv = CandidateController.importFile;
 
   public static async parseAndAddCv(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
