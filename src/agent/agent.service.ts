@@ -92,6 +92,27 @@ export class AgentService {
           functionCalls = [{ name: 'getCandidates', args: { jobId, limit } }];
         }
 
+        // Safety override 3: Negations & Cancellations (e.g. "don't accept", "do not accept", "don't reject", "undo")
+        const isNegation =
+          /\b(don't|dont|do not|never|stop|cancel|undo|korio na|koro na)\b/i.test(userMessage) &&
+          /\b(accept|reject|hire|shortlist)\b/i.test(userMessage);
+
+        if (isNegation && functionCalls && functionCalls.some((c) => c.name === 'reviewCandidates')) {
+          // Never reject when user says "don't accept"! Revert them safely back to 'sourced'
+          const match = userMessage.match(/\d+/);
+          const topN = match ? parseInt(match[0], 10) : 3;
+          functionCalls = [{ name: 'reviewCandidates', args: { jobId, decision: 'sourced', topN } }];
+        }
+
+        // Safety override 4: Feedback or confusion questions (e.g. "why did you reject?", "amar kothay to bujtese na")
+        const isFeedbackOrQuestion =
+          /\b(reject korlo ki|bujtese na|bujteso na|why did you|what happened|ki korla|ki holo)\b/i.test(userMessage);
+
+        if (isFeedbackOrQuestion) {
+          functionCalls = [];
+          assistantText = `I apologize for the confusion! I am carefully listening now. I will not make any changes to your candidates without your explicit confirmation. All candidates are currently safe in your active pipeline. What would you like to do next?`;
+        }
+
         if (functionCalls && functionCalls.length > 0) {
           for (const call of functionCalls) {
             executedToolCalls.push({ name: call.name, args: call.args as any });
@@ -154,6 +175,16 @@ export class AgentService {
           assistantText = res.message;
         } else {
           assistantText = 'Please select an active job first to view candidate profiles.';
+        }
+      } else if (
+        /\b(don't|dont|do not|never|stop|cancel|undo|korio na|koro na)\b/i.test(lower) &&
+        (lower.includes('accept') || lower.includes('candidate') || lower.includes('reject'))
+      ) {
+        if (jobId) {
+          const res = await AgentToolExecutor.execute('reviewCandidates', { jobId, decision: 'sourced', topN: 5 });
+          assistantText = res.message;
+        } else {
+          assistantText = 'Understood. Reverted candidate actions back to Sourced.';
         }
       } else if (lower.includes('accept top') || (lower.includes('accept') && lower.includes('candidate'))) {
         if (jobId) {

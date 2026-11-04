@@ -529,10 +529,10 @@ export class CandidateService {
   public static async bulkReview(
     jobId: string,
     candidateIds: string[],
-    decision: 'accept' | 'reject',
+    decision: 'accept' | 'reject' | 'sourced',
     actor: 'recruiter' | 'agent' = 'recruiter'
   ): Promise<{ updatedCount: number; updatedCandidates: ICandidate[] }> {
-    const targetStatus: CandidateStatus = decision === 'accept' ? 'accepted' : 'rejected';
+    const targetStatus: CandidateStatus = decision === 'sourced' ? 'sourced' : (decision === 'accept' ? 'accepted' : 'rejected');
     const updatedCandidates: ICandidate[] = [];
 
     for (const cid of candidateIds) {

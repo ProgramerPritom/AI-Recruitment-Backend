@@ -240,25 +240,29 @@ export class AgentToolExecutor {
         let candidateIds: string[] = args.candidateIds || [];
 
         if (topN && (!candidateIds || candidateIds.length === 0)) {
-          const topCandidates = await Candidate.find({ jobId, status: 'sourced' })
+          const statusFilter = decision === 'sourced' ? { $in: ['accepted', 'rejected'] } : 'sourced';
+          const candidatesToUpdate = await Candidate.find({ jobId, status: statusFilter })
             .sort({ score: -1 })
             .limit(topN)
             .select('_id')
             .exec();
-          candidateIds = topCandidates.map((c) => c._id.toString());
+          candidateIds = candidatesToUpdate.map((c) => c._id.toString());
         }
 
+        const targetDecision = decision === 'sourced' ? 'sourced' : (decision as 'accept' | 'reject');
         const result = await CandidateService.bulkReview(
           jobId,
           candidateIds,
-          decision as 'accept' | 'reject',
+          targetDecision,
           'agent'
         );
         return {
           success: true,
           decision,
           updatedCount: result.updatedCount,
-          message: `Successfully ${decision}ed ${result.updatedCount} candidates.`,
+          message: decision === 'sourced'
+            ? `Understood. Reverted ${result.updatedCount} candidate(s) back to Sourced.`
+            : `Successfully ${decision}ed ${result.updatedCount} candidates.`,
         };
       }
 
