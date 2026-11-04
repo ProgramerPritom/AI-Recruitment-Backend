@@ -212,13 +212,15 @@ ${content}`;
   public static async createJob(input: unknown): Promise<IJob> {
     const validated = CreateJobSchema.parse(input);
 
-    // Prevent rapid accidental double-submissions with identical title within 10 seconds
-    const recentDuplicate = await Job.findOne({
-      title: validated.title,
-      createdAt: { $gte: new Date(Date.now() - 10000) },
+    // Prevent duplicate jobs with the same title from ever being created in active state
+    const normalizedTitle = validated.title.trim();
+    const existingJob = await Job.findOne({
+      title: { $regex: new RegExp(`^${normalizedTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+      status: 'active',
     }).exec();
-    if (recentDuplicate) {
-      return recentDuplicate;
+
+    if (existingJob) {
+      return existingJob;
     }
 
     const job = new Job({
