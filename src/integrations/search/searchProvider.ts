@@ -41,13 +41,17 @@ export class SearchProvider {
     mustHaveSkills: string[],
     limit = 8
   ): Promise<SourcedProfile[]> {
+    // Strictly capped at maximum 8 candidates
+    const maxLimit = Math.min(Math.max(limit || 8, 1), 8);
+
     if (config.SERPER_API_KEY && config.SERPER_API_KEY.trim().length > 0) {
       try {
-        console.log(`[SearchProvider] Initiating live Google Serper candidate search for "${jobTitle}" (Limit: ${limit})...`);
-        const liveProfiles = await this.searchSerper(jobTitle, mustHaveSkills, limit);
+        console.log(`[SearchProvider] Initiating live Google Serper candidate search for "${jobTitle}" (Strict limit: ${maxLimit})...`);
+        const liveProfiles = await this.searchSerper(jobTitle, mustHaveSkills, maxLimit);
         if (liveProfiles && liveProfiles.length > 0) {
-          console.log(`[SearchProvider] Successfully retrieved ${liveProfiles.length} live candidates via Serper API.`);
-          return liveProfiles;
+          const capped = liveProfiles.slice(0, maxLimit);
+          console.log(`[SearchProvider] Successfully retrieved ${capped.length} live candidates via Serper API.`);
+          return capped;
         }
         console.warn(`[SearchProvider] Serper returned 0 results for "${jobTitle}". Using fallback profiles to ensure continuity.`);
       } catch (err: any) {
@@ -60,7 +64,7 @@ export class SearchProvider {
       console.log('[SearchProvider] No SERPER_API_KEY configured in .env. Falling back to realistic deterministic profile generator.');
     }
 
-    return this.generateMockProfiles(jobTitle, mustHaveSkills, limit);
+    return this.generateMockProfiles(jobTitle, mustHaveSkills, maxLimit);
   }
 
   /**
@@ -71,6 +75,7 @@ export class SearchProvider {
     mustHaveSkills: string[],
     limit: number
   ): Promise<SourcedProfile[]> {
+    const maxLimit = Math.min(Math.max(limit || 8, 1), 8);
     const cleanRole = this.cleanJobTitle(jobTitle);
     const topSkills = (mustHaveSkills || []).slice(0, 3).filter(Boolean);
 
@@ -78,7 +83,7 @@ export class SearchProvider {
     const skillsClause = topSkills.length > 0 ? topSkills.map((s) => `"${s}"`).join(' ') : '';
     const query = `site:linkedin.com/in/ "${cleanRole}" ${skillsClause}`.trim();
 
-    console.log(`[SearchProvider] Sending Serper query: ${query}`);
+    console.log(`[SearchProvider] Sending Serper query: ${query} (num: ${maxLimit})`);
 
     const startTime = Date.now();
     const response = await fetch('https://google.serper.dev/search', {
@@ -89,7 +94,7 @@ export class SearchProvider {
       },
       body: JSON.stringify({
         q: query,
-        num: Math.max(5, Math.min(limit, 10)), // 1 credit fetches up to 10 profiles
+        num: maxLimit, // Strictly at most 8 profiles to conserve API credits
       }),
     });
 
@@ -102,7 +107,7 @@ export class SearchProvider {
     }
 
     const data = (await response.json()) as any;
-    const organic = data.organic || [];
+    const organic = (data.organic || []).slice(0, maxLimit);
 
     if (organic.length === 0) {
       console.warn('[SearchProvider] No organic results returned by Serper for strict query. Attempting relaxed query...');
@@ -114,11 +119,11 @@ export class SearchProvider {
           'X-API-KEY': config.SERPER_API_KEY.trim(),
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ q: relaxedQuery, num: limit }),
+        body: JSON.stringify({ q: relaxedQuery, num: maxLimit }),
       });
       if (retryRes.ok) {
         const retryData = (await retryRes.json()) as any;
-        return this.parseOrganicResults(retryData.organic || [], cleanRole, mustHaveSkills);
+        return this.parseOrganicResults((retryData.organic || []).slice(0, maxLimit), cleanRole, mustHaveSkills);
       }
     }
 
@@ -197,7 +202,7 @@ export class SearchProvider {
     ];
 
     const profiles: SourcedProfile[] = [];
-    const count = Math.min(limit, mockNames.length);
+    const count = Math.min(limit, 8, mockNames.length);
 
     for (let i = 0; i < count; i++) {
       const name = mockNames[i];

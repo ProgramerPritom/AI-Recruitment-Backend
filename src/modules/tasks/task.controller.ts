@@ -11,7 +11,7 @@ export class TaskController {
   public static async startSourcing(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const jobId = req.params.jobId as string;
-      const limit = req.body.limit ? parseInt(req.body.limit, 10) : 8;
+      const limit = Math.min(req.body.limit ? parseInt(req.body.limit, 10) : 8, 8);
 
       const task = await TaskService.createTask(jobId, 'sourcing', limit);
 

@@ -12,6 +12,8 @@ import { processScoringJob } from './scoring.worker';
 
 export async function processSourcingJob(jobData: SourcingJobData): Promise<{ sourcedCount: number }> {
   const { taskId, jobId, limit = 8 } = jobData;
+  const maxLimit = Math.min(Math.max(limit || 8, 1), 8); // Strictly capped at 8 candidates
+
   const targetJob = await Job.findById(jobId).exec();
   if (!targetJob) {
     throw new Error(`Job ${jobId} not found for sourcing`);
@@ -21,23 +23,27 @@ export async function processSourcingJob(jobData: SourcingJobData): Promise<{ so
     phase: 'searching',
     progress: 10,
     processedCount: 0,
-    totalCount: limit,
+    totalCount: maxLimit,
   });
 
-  // 1. Search candidates via Serper or mock provider
-  const profiles = await SearchProvider.searchCandidates(targetJob.title, targetJob.mustHaveSkills, limit);
+  // 1. Search candidates via Serper or mock provider (strictly capped at 8)
+  const profiles = await SearchProvider.searchCandidates(targetJob.title, targetJob.mustHaveSkills, maxLimit);
 
   await TaskService.updateProgress(taskId, {
     phase: 'deduplicating',
     progress: 30,
-    processedCount: profiles.length,
-    totalCount: profiles.length,
+    processedCount: Math.min(profiles.length, maxLimit),
+    totalCount: maxLimit,
   });
 
   const jobObjectId = new mongoose.Types.ObjectId(jobId);
   const createdCandidateIds: string[] = [];
 
   for (const p of profiles) {
+    if (createdCandidateIds.length >= maxLimit) {
+      break; // Stop immediately once strictly 8 candidates are reached
+    }
+
     const normalizedEmail = CandidateService.normalizeEmail(p.email);
     const normalizedProfileUrl = CandidateService.normalizeProfileUrl(p.profileUrl);
 

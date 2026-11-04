@@ -174,7 +174,7 @@ export class AgentToolExecutor {
       }
 
       case 'startSourcing': {
-        const limit = args.limit || 8;
+        const limit = Math.min(args.limit || 8, 8);
         const task = await TaskService.createTask(args.jobId, 'sourcing', limit);
         setImmediate(() => {
           processSourcingJob({ taskId: task.taskId, jobId: args.jobId, limit }).catch((e) =>
