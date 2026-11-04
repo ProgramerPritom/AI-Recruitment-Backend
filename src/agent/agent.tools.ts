@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { FunctionDeclaration, SchemaType } from '@google/generative-ai';
 import { JobService } from '../modules/jobs/job.service';
 import { CandidateService } from '../modules/candidates/candidate.service';
@@ -62,20 +63,49 @@ export const agentToolDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'reviewCandidates',
-    description: 'Accept or reject candidates individually or in bulk (e.g. "accept top 5 candidates").',
+    description: 'Accept, reject, or restore candidates. Can specify candidate by name (e.g. "Olly Rennard", "Howard Li"), rank/topN (e.g. 1 for "1st candidate", 3 for "top 3"), minScore (e.g. 80 for score above 80), or criteria ("lowest_score", "last_candidate").',
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
-        jobId: { type: SchemaType.STRING, description: 'The Job ID' },
-        decision: { type: SchemaType.STRING, description: '"accept" or "reject"' },
-        topN: { type: SchemaType.NUMBER, description: 'Select top N scored candidates (e.g. 5)' },
+        jobId: { type: SchemaType.STRING, description: 'The MongoDB Job ID' },
+        decision: { type: SchemaType.STRING, description: '"accept", "reject", "delete", or "sourced"' },
+        candidateName: { type: SchemaType.STRING, description: 'Candidate name to review (e.g. "Olly Rennard", "Howard Li")' },
+        topN: { type: SchemaType.NUMBER, description: 'Select top N scored candidates (e.g. 1 for "1st candidate", 3 for "top 3")' },
+        minScore: { type: SchemaType.NUMBER, description: 'Accept or filter candidates with match score >= minScore (e.g. 80)' },
+        criteria: { type: SchemaType.STRING, description: '"lowest_score", "last", or "top"' },
         candidateIds: {
           type: SchemaType.ARRAY,
           items: { type: SchemaType.STRING },
-          description: 'Explicit list of candidate IDs to update',
+          description: 'Candidate IDs or names to update',
         },
       },
       required: ['jobId', 'decision'],
+    },
+  },
+  {
+    name: 'getCandidateDetails',
+    description: 'Get full profile, experience, skills/technologies, match analysis, and LinkedIn link for a specific candidate by ID (e.g. "6aeae301e2ab5cbb1803d1cf") or candidate name. MUST be called when recruiter asks for details, experience, technologies, or profile of a specific candidate.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        candidateId: { type: SchemaType.STRING, description: 'Candidate MongoDB ObjectId' },
+        candidateName: { type: SchemaType.STRING, description: 'Candidate name' },
+        jobId: { type: SchemaType.STRING, description: 'Active Job ID' },
+      },
+    },
+  },
+  {
+    name: 'deleteCandidate',
+    description: 'Permanently remove or delete a candidate from the job. Can find candidate by name (e.g. "Olly Rennard"), criteria (e.g. "lowest_score", "last candidate"), or ID. Use when recruiter says "delete", "remove", or "reject and remove".',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        jobId: { type: SchemaType.STRING, description: 'The MongoDB Job ID' },
+        candidateName: { type: SchemaType.STRING, description: 'Candidate name to delete (e.g. "Olly Rennard")' },
+        criteria: { type: SchemaType.STRING, description: '"lowest_score", "last", or "bottom"' },
+        candidateId: { type: SchemaType.STRING, description: 'Candidate ID if known' },
+      },
+      required: ['jobId'],
     },
   },
   {
@@ -235,18 +265,198 @@ export class AgentToolExecutor {
         };
       }
 
-      case 'reviewCandidates': {
-        const { jobId, decision, topN } = args;
-        let candidateIds: string[] = args.candidateIds || [];
+      case 'getCandidateDetails': {
+        const { candidateId, candidateName, jobId } = args;
+        let targetCandidate: any = null;
 
-        if (topN && (!candidateIds || candidateIds.length === 0)) {
-          const statusFilter = decision === 'sourced' ? { $in: ['accepted', 'rejected'] } : 'sourced';
-          const candidatesToUpdate = await Candidate.find({ jobId, status: statusFilter })
+        if (candidateId && mongoose.Types.ObjectId.isValid(candidateId)) {
+          targetCandidate = await Candidate.findById(candidateId);
+        }
+        if (!targetCandidate && candidateName) {
+          const filter: any = { name: { $regex: new RegExp(candidateName.trim(), 'i') } };
+          if (jobId && mongoose.Types.ObjectId.isValid(jobId)) {
+            filter.jobId = new mongoose.Types.ObjectId(jobId);
+          }
+          targetCandidate = await Candidate.findOne(filter);
+        }
+
+        if (!targetCandidate) {
+          return {
+            success: false,
+            message: `Could not find candidate details for "${candidateName || candidateId || 'specified candidate'}".`,
+          };
+        }
+
+        const expText = targetCandidate.experienceYears
+          ? `${targetCandidate.experienceYears}+ years${targetCandidate.currentRole ? ` as ${targetCandidate.currentRole}` : ''}${targetCandidate.currentCompany ? ` at ${targetCandidate.currentCompany}` : ''}`
+          : targetCandidate.currentRole
+          ? `${targetCandidate.currentRole}${targetCandidate.currentCompany ? ` at ${targetCandidate.currentCompany}` : ''}`
+          : 'Experience extracted from resume / LinkedIn profile';
+
+        const skillsList = targetCandidate.skills && targetCandidate.skills.length > 0
+          ? targetCandidate.skills.join(', ')
+          : 'None specified';
+
+        const matchScoreText = targetCandidate.score !== undefined ? `${targetCandidate.score}%` : 'Unscored';
+        const rationaleText = targetCandidate.matchRationale || targetCandidate.matchBreakdown?.summary || 'Candidate profile aligns with core job requirements.';
+
+        const message = `### Candidate Profile: **${targetCandidate.name}**\n\n` +
+          `- **Match Score:** **${matchScoreText}** (Status: *${targetCandidate.status}*)\n` +
+          `- **Experience:** ${expText}\n` +
+          `- **Technologies & Skills:** ${skillsList}\n` +
+          `- **Email:** ${targetCandidate.email || 'N/A'}\n` +
+          `- **LinkedIn Profile:** ${targetCandidate.profileUrl ? `[View LinkedIn Profile](${targetCandidate.profileUrl})` : 'N/A'}\n` +
+          `- **AI Match Evaluation:** ${rationaleText}\n` +
+          (targetCandidate.matchBreakdown?.missingSkills?.length > 0 ? `- **Missing Skills:** ${targetCandidate.matchBreakdown.missingSkills.join(', ')}\n` : '');
+
+        return {
+          success: true,
+          candidate: targetCandidate,
+          cardType: 'candidate_detail',
+          message,
+        };
+      }
+
+      case 'deleteCandidate': {
+        const { jobId, candidateName, criteria, candidateId } = args;
+        let targetCandidate: any = null;
+        const jobObjectId = new mongoose.Types.ObjectId(jobId);
+
+        if (candidateId && mongoose.Types.ObjectId.isValid(candidateId)) {
+          targetCandidate = await Candidate.findOne({ _id: candidateId, jobId: jobObjectId });
+        }
+        if (!targetCandidate && candidateName) {
+          targetCandidate = await Candidate.findOne({
+            jobId: jobObjectId,
+            name: { $regex: new RegExp(candidateName.trim(), 'i') },
+          });
+        }
+        if (!targetCandidate && (criteria === 'lowest_score' || criteria === 'last' || criteria === 'bottom' || !candidateName)) {
+          targetCandidate = await Candidate.findOne({ jobId: jobObjectId })
+            .sort({ score: 1, createdAt: -1 });
+        }
+
+        if (!targetCandidate) {
+          return {
+            success: false,
+            message: `Could not find any candidate matching "${candidateName || criteria || 'criteria'}" in this job.`,
+          };
+        }
+
+        const delResult = await CandidateService.deleteCandidate(targetCandidate._id.toString(), 'agent');
+        return {
+          success: true,
+          deletedCandidateId: delResult.deletedCandidateId,
+          message: `Successfully removed and deleted candidate "${targetCandidate.name}" (Score: ${targetCandidate.score !== undefined ? `${targetCandidate.score}%` : 'Unscored'}) from the job and database.`,
+        };
+      }
+
+      case 'reviewCandidates': {
+        const { jobId, decision, topN, candidateName, criteria } = args;
+        let candidateIds: string[] = [];
+        const jobObjectId = new mongoose.Types.ObjectId(jobId);
+
+        // 1. If candidateName was provided, find by regex
+        if (candidateName) {
+          const found = await Candidate.findOne({
+            jobId: jobObjectId,
+            name: { $regex: new RegExp(candidateName.trim(), 'i') },
+          });
+          if (found) {
+            candidateIds.push(found._id.toString());
+          }
+        }
+
+        // 2. If criteria is lowest_score or last
+        if (criteria === 'lowest_score' || criteria === 'last' || criteria === 'bottom') {
+          const lowest = await Candidate.findOne({ jobId: jobObjectId }).sort({ score: 1 });
+          if (lowest && !candidateIds.includes(lowest._id.toString())) {
+            candidateIds.push(lowest._id.toString());
+          }
+        }
+
+        // 3. If explicit candidateIds or names were provided
+        if (Array.isArray(args.candidateIds) && args.candidateIds.length > 0) {
+          for (const item of args.candidateIds) {
+            if (typeof item === 'string') {
+              if (mongoose.Types.ObjectId.isValid(item) && item.length === 24) {
+                // Ensure it's a real candidate in this job, not a jobId hallucination!
+                const realCandidate = await Candidate.findOne({ _id: item, jobId: jobObjectId });
+                if (realCandidate) {
+                  if (!candidateIds.includes(item)) candidateIds.push(item);
+                  continue;
+                }
+              }
+              // It's a candidate name! Find by name
+              const foundByName = await Candidate.findOne({
+                jobId: jobObjectId,
+                name: { $regex: new RegExp(item.trim(), 'i') },
+              });
+              if (foundByName && !candidateIds.includes(foundByName._id.toString())) {
+                candidateIds.push(foundByName._id.toString());
+              }
+            }
+          }
+        }
+
+        // 4. If topN was provided (e.g. 1 for "1st candidate", 3 for "top 3")
+        if (candidateIds.length === 0 && topN && topN > 0) {
+          const statusFilter =
+            decision === 'sourced'
+              ? { $in: ['accepted', 'rejected'] }
+              : decision === 'accept'
+              ? { $in: ['sourced', 'rejected'] }
+              : { $in: ['sourced', 'accepted'] };
+
+          const candidatesToUpdate = await Candidate.find({ jobId: jobObjectId, status: statusFilter })
             .sort({ score: -1 })
             .limit(topN)
             .select('_id')
             .exec();
           candidateIds = candidatesToUpdate.map((c) => c._id.toString());
+        }
+
+        // 5. If minScore was provided (e.g. minScore: 80 for "above score 80")
+        if (candidateIds.length === 0 && args.minScore !== undefined && args.minScore > 0) {
+          const statusFilter =
+            decision === 'sourced'
+              ? { $in: ['accepted', 'rejected'] }
+              : decision === 'accept'
+              ? { $in: ['sourced', 'rejected'] }
+              : { $in: ['sourced', 'accepted'] };
+
+          const candidatesToUpdate = await Candidate.find({
+            jobId: jobObjectId,
+            score: { $gte: args.minScore },
+            status: statusFilter,
+          })
+            .sort({ score: -1 })
+            .select('_id')
+            .exec();
+          candidateIds = candidatesToUpdate.map((c) => c._id.toString());
+        }
+
+        // If user requested to delete or remove
+        if (decision === 'delete' || decision === 'remove') {
+          if (candidateIds.length === 0) {
+            return {
+              success: false,
+              message: 'Could not find the specified candidate to remove.',
+            };
+          }
+          const delRes = await CandidateService.bulkDelete(jobId, candidateIds, 'agent');
+          return {
+            success: true,
+            deletedCount: delRes.deletedCount,
+            message: `Successfully removed and deleted ${delRes.deletedCount} candidate(s) from database.`,
+          };
+        }
+
+        if (candidateIds.length === 0) {
+          return {
+            success: false,
+            message: `Could not find any candidates matching your instruction in this job.`,
+          };
         }
 
         const targetDecision = decision === 'sourced' ? 'sourced' : (decision as 'accept' | 'reject');
@@ -256,13 +466,15 @@ export class AgentToolExecutor {
           targetDecision,
           'agent'
         );
+
+        const candidateNames = result.updatedCandidates.map((c) => c.name).join(', ');
         return {
           success: true,
           decision,
           updatedCount: result.updatedCount,
           message: decision === 'sourced'
-            ? `Understood. Reverted ${result.updatedCount} candidate(s) back to Sourced.`
-            : `Successfully ${decision}ed ${result.updatedCount} candidates.`,
+            ? `Understood. Reverted ${candidateNames || `${result.updatedCount} candidate(s)`} back to Sourced.`
+            : `Successfully ${decision}ed ${candidateNames || `${result.updatedCount} candidate(s)`}.`,
         };
       }
 

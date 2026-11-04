@@ -81,8 +81,17 @@ export async function processOutreachJob(
       continue;
     }
 
-    // 3. Dispatch Email with personalization
-    const personalizedBody = step.body.replace(/\{\{name\}\}/gi, freshCandidate.name);
+    // 3. Dispatch Email with personalization & dynamic variable substitution
+    let personalizedBody = step.body.replace(/\{\{name\}\}/gi, freshCandidate.name);
+    personalizedBody = personalizedBody
+      .replace(/\[Your Name\]/gi, 'Talent Acquisition Team')
+      .replace(/\[Your Title\]/gi, 'Executive Recruiter')
+      .replace(/\[Your Company\]/gi, 'Aironauts')
+      .replace(/\[mention a relevant area[^\]]*\]/gi, freshCandidate.skills?.slice(0, 3).join(', ') || 'AI & MERN Stack')
+      .replace(/\[industry\/tech domain\]/gi, 'AI technology')
+      .replace(/\[Your LinkedIn Profile[^\]]*\]/gi, '')
+      .replace(/\[Your Phone Number[^\]]*\]/gi, '');
+
     try {
       await EmailProvider.sendEmail({
         to: freshCandidate.email!,

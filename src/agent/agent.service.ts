@@ -1,5 +1,7 @@
 import mongoose from 'mongoose';
 import { ChatMessage, IChatMessage } from '../modules/chat/chat.model';
+import { Candidate } from '../modules/candidates/candidate.model';
+import { Job } from '../modules/jobs/job.model';
 import { AGENT_SYSTEM_PROMPT } from './agent.prompts';
 import { agentToolDeclarations, AgentToolExecutor } from './agent.tools';
 import { getGeminiClient, callGeminiWithModelFallback } from '../integrations/gemini/geminiClient';
@@ -48,13 +50,236 @@ export class AgentService {
         /\b(engineer|developer|designer|manager|lead|architect|specialist|intern|senior|junior|mid|python|react|frontend|backend|full-stack|fullstack|devops|data|ai|ml|rag|llm|mern|node|software)\b/i.test(userMessage)) ||
       (userMessage.length > 25 && /\b(responsibilities|requirements|qualifications|years?(\s+of)?\s+experience|\d+\s*\+?\s*years?)\b/i.test(userMessage));
 
-    // 3. Call Gemini with Tool Calling if API key is provided
-    if (config.GEMINI_API_KEY && config.GEMINI_API_KEY !== 'MOCK_KEY') {
+    // 2.5 Prepare rich, real-time candidate and job context for Gemini
+    let candidateContextSummary = '';
+    let activeJobInfo = '';
+
+    if (jobId && !isJobCreationIntent) {
+      try {
+        const targetJob = await Job.findById(jobId).select('title mustHaveSkills niceToHaveSkills seniority experience').exec();
+        if (targetJob) {
+          activeJobInfo = `[Active Job: "${targetJob.title}"] (ID: "${targetJob._id}") | Must-Haves: [${targetJob.mustHaveSkills.join(', ')}] | Seniority: ${targetJob.seniority || 'N/A'}`;
+        }
+
+        const existingCandidates = await Candidate.find({ jobId: new mongoose.Types.ObjectId(jobId) })
+          .select('_id name score status skills')
+          .sort({ score: -1, createdAt: -1 })
+          .exec();
+
+        if (existingCandidates.length > 0) {
+          candidateContextSummary = `[Active Job Pipeline - ${existingCandidates.length} Candidates in Pipeline (Ranked by Match Score)]:\n` +
+            existingCandidates
+              .map(
+                (c, i) =>
+                  `${i + 1}. [Candidate ID: "${c._id}"] "${c.name}" | Match Score: ${c.score !== undefined ? `${c.score}%` : 'Unscored'} | Current Status: "${c.status}"`
+              )
+              .join('\n');
+
+          const lower = userMessage.toLowerCase();
+          const isRemoveOrDelete = /\b(remove|delete|muche|katia|drop)\b/i.test(lower);
+          const isReject = /\b(reject|bad)\b/i.test(lower) && !/\b(don't|dont|not|na|koro na)\b/i.test(lower);
+          const isAccept = /\b(accept|shorthand|shortlist|nebo|neo)\b/i.test(lower) && !/\b(don't|dont|not|na|koro na)\b/i.test(lower);
+          const isLowestScore = /\b(lowest score|low score|last candidate|lowest|bottom|sobar sesher)\b/i.test(lower);
+          const isFirstCandidate = /\b(1st candidate|first candidate|top 1 candidate|only 1st|only first|1st|top 1|first one)\b/i.test(lower);
+          const isNegation =
+            /\b(don't|dont|do not|never|stop|cancel|undo|korio na|koro na)\b/i.test(lower) &&
+            /\b(accept|hire|shortlist)\b/i.test(lower);
+
+          const hexIdMatch = lower.match(/\b([a-f0-9]{24})\b/i);
+          const isDetailIntent =
+            /\b(detail|details|experience|techonlogies|technologies|skills|profile|linkedin|info|background|shared|share|cv|resume)\b/i.test(lower);
+
+          // Score threshold pattern (e.g. "above score 80", "score >= 80", "above 80", "score 80 ar beshi")
+          const scoreThresholdMatch =
+            lower.match(/\b(?:above|over|greater than|more than|>=?|higher than|beshi|besi)\s*(?:score)?\s*(\d+)\b/i) ||
+            lower.match(/\b(?:score)\s*(?:above|over|greater than|more than|>=?|higher than|beshi|besi)?\s*(\d+)\b/i);
+
+          // Find candidate by name
+          const mentionedCandidate = existingCandidates.find((c) => {
+            const cNameLower = c.name.toLowerCase();
+            const firstName = cNameLower.split(' ')[0];
+            const lastName = cNameLower.split(' ').slice(1).join(' ');
+            return (
+              lower.includes(cNameLower) ||
+              (firstName.length > 3 && lower.includes(firstName)) ||
+              (lastName.length > 3 && lower.includes(lastName))
+            );
+          });
+
+          // 1. Specific Candidate Detail Lookup (by ID or Name)
+          if ((hexIdMatch && isDetailIntent) || (hexIdMatch && !isAccept && !isReject && !isRemoveOrDelete)) {
+            const candidateId = hexIdMatch[1];
+            const res = await AgentToolExecutor.execute('getCandidateDetails', { candidateId, jobId });
+            cardPayload = res;
+            assistantText = res.message;
+          } else if (mentionedCandidate && isDetailIntent && !isRemoveOrDelete && !isReject && !isAccept) {
+            const res = await AgentToolExecutor.execute('getCandidateDetails', {
+              candidateId: mentionedCandidate._id.toString(),
+              candidateName: mentionedCandidate.name,
+              jobId,
+            });
+            cardPayload = res;
+            assistantText = res.message;
+          } else if (
+            mentionedCandidate &&
+            (lower.includes('only') || lower.includes('shudhu') || lower.includes('sudu') || lower.includes('chara')) &&
+            (lower.includes('accept') || lower.includes('accepted'))
+          ) {
+            // User specified: "only [Candidate] accepted" (e.g. "undo accepted status to sourced. only Badruzzaman Pritom candidate accepted")
+            await Candidate.updateMany(
+              { jobId: new mongoose.Types.ObjectId(jobId), _id: { $ne: mentionedCandidate._id }, status: 'accepted' },
+              { $set: { status: 'sourced' } }
+            );
+            await Candidate.findByIdAndUpdate(mentionedCandidate._id, { $set: { status: 'accepted' } });
+            assistantText = `Understood! Set **${mentionedCandidate.name}** as the only Accepted candidate, and reverted all other candidates back to Sourced pipeline.`;
+          } else if (isNegation) {
+            const match = lower.match(/\d+/);
+            const topN = match ? parseInt(match[0], 10) : undefined;
+            if (topN) {
+              const acceptedCandidates = await Candidate.find({ jobId: new mongoose.Types.ObjectId(jobId), status: 'accepted' })
+                .sort({ score: -1 })
+                .limit(topN)
+                .select('_id name')
+                .exec();
+              const ids = acceptedCandidates.map((c) => c._id);
+              await Candidate.updateMany({ _id: { $in: ids } }, { $set: { status: 'sourced' } });
+              assistantText = `Understood. Reverted ${acceptedCandidates.map((c) => c.name).join(', ') || `${topN} candidate(s)`} back to Sourced pipeline.`;
+            } else {
+              await Candidate.updateMany({ jobId: new mongoose.Types.ObjectId(jobId), status: 'accepted' }, { $set: { status: 'sourced' } });
+              assistantText = `Understood. Reverted candidate statuses back to Sourced pipeline.`;
+            }
+          } else if (isAccept && scoreThresholdMatch) {
+            // Score threshold acceptance (e.g. "accept candidate who have above score 80")
+            const minScore = parseInt(scoreThresholdMatch[1], 10);
+            const eligibleCandidates = existingCandidates.filter((c) => (c.score || 0) >= minScore);
+            const newlyAccepted: string[] = [];
+            const alreadyAccepted: string[] = [];
+
+            for (const cand of eligibleCandidates) {
+              if (cand.status === 'accepted') {
+                alreadyAccepted.push(cand.name);
+              } else {
+                await Candidate.findByIdAndUpdate(cand._id, { $set: { status: 'accepted' } });
+                newlyAccepted.push(cand.name);
+              }
+            }
+
+            if (newlyAccepted.length > 0) {
+              assistantText = `Successfully accepted ${newlyAccepted.length} candidate(s) with score >= ${minScore}%: **${newlyAccepted.join(', ')}**${alreadyAccepted.length > 0 ? ` (${alreadyAccepted.join(', ')} were already accepted)` : ''}.`;
+            } else if (alreadyAccepted.length > 0) {
+              assistantText = `All candidate(s) with score >= ${minScore}% are already accepted: **${alreadyAccepted.join(', ')}**.`;
+            } else {
+              assistantText = `No candidates found with score >= ${minScore}%. The highest score in pipeline is ${existingCandidates[0]?.score || 0}%.`;
+            }
+          } else if (mentionedCandidate) {
+            if (isRemoveOrDelete) {
+              const res = await AgentToolExecutor.execute('deleteCandidate', {
+                jobId,
+                candidateId: mentionedCandidate._id.toString(),
+                candidateName: mentionedCandidate.name,
+              });
+              assistantText = res.message;
+            } else if (isReject) {
+              const res = await AgentToolExecutor.execute('reviewCandidates', {
+                jobId,
+                decision: 'reject',
+                candidateName: mentionedCandidate.name,
+              });
+              assistantText = res.message;
+            } else if (isAccept) {
+              const res = await AgentToolExecutor.execute('reviewCandidates', {
+                jobId,
+                decision: 'accept',
+                candidateName: mentionedCandidate.name,
+              });
+              assistantText = res.message;
+            } else if (lower.includes('name is') || lower.includes('score')) {
+              const lastMsg = history[history.length - 2]?.content || '';
+              if (lastMsg.toLowerCase().includes('reject') || lastMsg.toLowerCase().includes('remove') || lastMsg.toLowerCase().includes('delete') || lower.includes('reject') || lower.includes('remove')) {
+                const res = await AgentToolExecutor.execute('deleteCandidate', {
+                  jobId,
+                  candidateId: mentionedCandidate._id.toString(),
+                  candidateName: mentionedCandidate.name,
+                });
+                assistantText = res.message;
+              } else {
+                assistantText = `Identified candidate **${mentionedCandidate.name}** (Match Score: **${mentionedCandidate.score || 0}%**, Status: *${mentionedCandidate.status}*). Would you like to accept, reject, or remove this candidate?`;
+              }
+            }
+          } else if (isLowestScore) {
+            if (isRemoveOrDelete) {
+              const res = await AgentToolExecutor.execute('deleteCandidate', {
+                jobId,
+                criteria: 'lowest_score',
+              });
+              assistantText = res.message;
+            } else if (isReject) {
+              const res = await AgentToolExecutor.execute('reviewCandidates', {
+                jobId,
+                decision: 'reject',
+                criteria: 'lowest_score',
+              });
+              assistantText = res.message;
+            }
+          } else if (isFirstCandidate && isAccept) {
+            const topCandidate = existingCandidates[0];
+            if (topCandidate) {
+              if (lower.includes('only') || lower.includes('shudhu') || lower.includes('sudu')) {
+                await Candidate.updateMany({ jobId: new mongoose.Types.ObjectId(jobId), _id: { $ne: topCandidate._id }, status: 'accepted' }, { $set: { status: 'sourced' } });
+              }
+              await Candidate.findByIdAndUpdate(topCandidate._id, { $set: { status: 'accepted' } });
+              assistantText = `Successfully accepted top candidate **${topCandidate.name}** (Match Score: **${topCandidate.score || 0}%**)${lower.includes('only') || lower.includes('shudhu') || lower.includes('sudu') ? ', and kept all other candidates in Sourced pipeline' : ''}.`;
+            }
+          } else if (isAccept && (/\b(top|first)\s*(\d+)\b/i.test(lower) || /\b(\d+)\s*(candidates?|profiles?)\b/i.test(lower))) {
+            const match = lower.match(/\b(top|first)\s*(\d+)\b/i) || lower.match(/\b(\d+)\b/);
+            const count = match ? parseInt(match[2] || match[1], 10) : 3;
+            const targetList = existingCandidates.slice(0, count);
+            const targetIds = targetList.map((c) => c._id);
+            if (lower.includes('only') || lower.includes('shudhu') || lower.includes('sudu')) {
+              await Candidate.updateMany({ jobId: new mongoose.Types.ObjectId(jobId), _id: { $nin: targetIds }, status: 'accepted' }, { $set: { status: 'sourced' } });
+            }
+            await Candidate.updateMany({ _id: { $in: targetIds } }, { $set: { status: 'accepted' } });
+            assistantText = `Successfully accepted top ${targetList.length} candidate(s): **${targetList.map((c) => c.name).join(', ')}**${lower.includes('only') || lower.includes('shudhu') || lower.includes('sudu') ? ', and kept all other candidates in Sourced pipeline' : ''}.`;
+          } else if (
+            /\b(show|list|view|display|dekhao|kader|ke ke)\b/i.test(lower) &&
+            /\b(candidate|candidates|profile|profiles|applicant|applicants|top)\b/i.test(lower) &&
+            !/\b(accept|reject|hire|shortlist|delete|remove)\b/i.test(lower)
+          ) {
+            const match = lower.match(/\d+/);
+            const count = match ? parseInt(match[0], 10) : 3;
+            const list = existingCandidates.slice(0, count);
+            const formatted = list
+              .map(
+                (c, idx) =>
+                  `${idx + 1}. **${c.name}** — Match Score: **${c.score !== undefined ? `${c.score}%` : 'Unscored'}** | Status: *${c.status}*`
+              )
+              .join('\n');
+            assistantText = `Here are the top ${list.length} candidate(s) for this job:\n\n${formatted}\n\nWould you like to accept any of them or begin drafting outreach?`;
+          } else if (
+            /\b(draft|create|start|launch|begin|shuru|banao|ready)\b/i.test(lower) &&
+            /\b(campaign|outreach|email|emails|sequence)\b/i.test(lower)
+          ) {
+            const res = await AgentToolExecutor.execute('createCampaign', { jobId });
+            cardPayload = res;
+            assistantText = res.message;
+          }
+        } else {
+          candidateContextSummary = `[Active Job Pipeline: 0 candidates currently in pipeline]`;
+        }
+      } catch (err) {
+        console.warn('[AgentService] Error building candidate context:', err);
+      }
+    }
+
+    // 3. Call Gemini with Tool Calling if API key is provided and intent not yet handled
+    if (!assistantText && config.GEMINI_API_KEY && config.GEMINI_API_KEY !== 'MOCK_KEY') {
       try {
         const client = getGeminiClient();
 
-        // Do not bind to active jobId if the user is clearly creating a new job role
-        const promptText = jobId && !isJobCreationIntent ? `[Active Job ID: ${jobId}]\n${userMessage}` : userMessage;
+        // Pass active Job ID and candidate context to Gemini
+        const promptText = jobId && !isJobCreationIntent
+          ? `${activeJobInfo ? activeJobInfo + '\n' : ''}${candidateContextSummary ? candidateContextSummary + '\n\n' : ''}User Message: ${userMessage}`
+          : userMessage;
 
         const response = await callGeminiWithModelFallback(async (modelName) => {
           const model = client.getGenerativeModel({

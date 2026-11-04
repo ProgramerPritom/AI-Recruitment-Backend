@@ -59,22 +59,27 @@ Generate a 3-step sequence in JSON format matching this schema:
       "stepNumber": 1,
       "delayDays": 0,
       "subject": "string",
-      "body": "string with personalized placeholders like {{name}}"
+      "body": "string with personalized placeholder {{name}}"
     },
     {
       "stepNumber": 2,
       "delayDays": 3,
       "subject": "string",
-      "body": "string"
+      "body": "string with personalized placeholder {{name}}"
     },
     {
       "stepNumber": 3,
       "delayDays": 7,
       "subject": "string",
-      "body": "string"
+      "body": "string with personalized placeholder {{name}}"
     }
   ]
 }
+
+CRITICAL RULES:
+- The ONLY allowed variable is {{name}} (e.g. "Hello {{name}},").
+- NEVER use square brackets or unresolved placeholders like [Your Name], [mention ...], [Company], or [industry]. Write complete, highly polished, ready-to-send copy.
+- Sign off as "Talent Acquisition Team\\nAironauts".
 
 Role: ${job.title}
 Key Skills: ${job.mustHaveSkills.join(', ')}

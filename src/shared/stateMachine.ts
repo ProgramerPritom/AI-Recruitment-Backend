@@ -33,11 +33,11 @@ export const VALID_CANDIDATE_STATUSES: CandidateStatus[] = [
  */
 const STATUS_TRANSITIONS: Record<CandidateStatus, CandidateStatus[]> = {
   sourced: ['accepted', 'rejected'],
-  accepted: ['contacted', 'rejected'],
-  contacted: ['replied', 'unsubscribed'],
+  accepted: ['contacted', 'rejected', 'sourced'], // Allow recruiter to undo/revert acceptance back to sourced
+  contacted: ['replied', 'unsubscribed', 'sourced'],
   replied: ['interested', 'not_interested', 'unsubscribed'],
   interested: ['meeting_booked', 'rejected', 'unsubscribed'],
-  not_interested: ['unsubscribed'],
+  not_interested: ['unsubscribed', 'sourced'],
   meeting_booked: ['interviewed', 'rejected', 'unsubscribed'],
   interviewed: ['shortlisted', 'rejected', 'unsubscribed'],
   shortlisted: ['hired', 'rejected', 'unsubscribed'],
