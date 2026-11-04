@@ -129,6 +129,8 @@ export class AgentService {
         } else {
           assistantText = 'Please select an active job first before starting candidate sourcing.';
         }
+      } else if (lower.includes('csv') || lower.includes('upload candidate') || lower.includes('import candidate')) {
+        assistantText = `You can import candidate profiles via CSV at any time:\n\n1. Look at the top right of the **Talent Pipeline** table and click the blue **"Upload CSV"** button.\n2. In the modal, you can click **"Sample CSV"** to download a ready-made template, or use the \`sample_candidates.csv\` in your project folder.\n3. Select your CSV file and click **"Upload & Import Candidates"**.\n\nAll imported candidates will be validated, deduplicated, evaluated by AI, and saved to MongoDB.`;
       } else if (lower.includes('accept top') || (lower.includes('accept') && lower.includes('candidate'))) {
         if (jobId) {
           const match = lower.match(/\d+/);
