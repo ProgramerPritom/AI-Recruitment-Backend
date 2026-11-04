@@ -34,7 +34,7 @@ export class SearchProvider {
   }
 
   /**
-   * Search candidate profiles using Google Serper Dev API or fallback to high-fidelity generator
+   * Search candidate profiles exclusively using Google Serper Dev API (No mock/static fallback)
    */
   public static async searchCandidates(
     jobTitle: string,
@@ -44,27 +44,24 @@ export class SearchProvider {
     // Strictly capped at maximum 8 candidates
     const maxLimit = Math.min(Math.max(limit || 8, 1), 8);
 
-    if (config.SERPER_API_KEY && config.SERPER_API_KEY.trim().length > 0) {
-      try {
-        console.log(`[SearchProvider] Initiating live Google Serper candidate search for "${jobTitle}" (Strict limit: ${maxLimit})...`);
-        const liveProfiles = await this.searchSerper(jobTitle, mustHaveSkills, maxLimit);
-        if (liveProfiles && liveProfiles.length > 0) {
-          const capped = liveProfiles.slice(0, maxLimit);
-          console.log(`[SearchProvider] Successfully retrieved ${capped.length} live candidates via Serper API.`);
-          return capped;
-        }
-        console.warn(`[SearchProvider] Serper returned 0 results for "${jobTitle}". Using fallback profiles to ensure continuity.`);
-      } catch (err: any) {
-        console.error(`[SearchProvider] Live Serper search failed: ${err.message}`);
-        if (err.message.includes('403')) {
-          console.error('[SearchProvider] NOTE: 403 Unauthorized received. Please check if your Serper.dev email is verified or verify the API key at https://serper.dev/api-keys');
-        }
-      }
-    } else {
-      console.log('[SearchProvider] No SERPER_API_KEY configured in .env. Falling back to realistic deterministic profile generator.');
+    if (!config.SERPER_API_KEY || config.SERPER_API_KEY.trim().length === 0) {
+      throw new Error('SERPER_API_KEY is not configured in .env. Live web sourcing requires an active Serper API key.');
     }
 
-    return this.generateMockProfiles(jobTitle, mustHaveSkills, maxLimit);
+    console.log(`[SearchProvider] Initiating live Google Serper candidate search for "${jobTitle}" (Strict limit: ${maxLimit})...`);
+    
+    try {
+      const liveProfiles = await this.searchSerper(jobTitle, mustHaveSkills, maxLimit);
+      if (liveProfiles && liveProfiles.length > 0) {
+        const capped = liveProfiles.slice(0, maxLimit);
+        console.log(`[SearchProvider] Successfully retrieved ${capped.length} live candidates via Serper API.`);
+        return capped;
+      }
+      throw new Error(`Google Serper returned 0 profiles for "${this.cleanJobTitle(jobTitle)}". Please verify keywords.`);
+    } catch (err: any) {
+      console.error(`[SearchProvider] Live Serper search failed: ${err.message}`);
+      throw err;
+    }
   }
 
   /**
