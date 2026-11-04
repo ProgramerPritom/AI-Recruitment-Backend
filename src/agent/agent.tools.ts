@@ -48,6 +48,19 @@ export const agentToolDeclarations: FunctionDeclaration[] = [
     },
   },
   {
+    name: 'getCandidates',
+    description: 'List or show candidate profiles for the active job (e.g. "show top 3 candidates", "list candidates", "who are the top candidates?"). Returns candidate names, match scores, skills, and current status. DO NOT call reviewCandidates when user asks to see or show candidate list.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        jobId: { type: SchemaType.STRING, description: 'The MongoDB Job ID' },
+        limit: { type: SchemaType.NUMBER, description: 'Number of candidates to list (default 5)' },
+        status: { type: SchemaType.STRING, description: 'Filter by status: "all", "sourced", "accepted", "rejected"' },
+      },
+      required: ['jobId'],
+    },
+  },
+  {
     name: 'reviewCandidates',
     description: 'Accept or reject candidates individually or in bulk (e.g. "accept top 5 candidates").',
     parameters: {
@@ -186,6 +199,39 @@ export class AgentToolExecutor {
           taskId: task.taskId,
           cardType: 'live_progress',
           message: `Candidate sourcing started for job. Task ID: ${task.taskId}. Watching live progress...`,
+        };
+      }
+
+      case 'getCandidates': {
+        const { jobId, limit = 5, status } = args;
+        const query: any = { jobId };
+        if (status && status !== 'all') {
+          query.status = status;
+        }
+        const candidates = await Candidate.find(query)
+          .sort({ score: -1, createdAt: -1 })
+          .limit(limit)
+          .exec();
+
+        if (candidates.length === 0) {
+          return {
+            success: true,
+            candidates: [],
+            message: 'No candidates found in the pipeline for this job yet. You can source candidates from the web or upload CVs.',
+          };
+        }
+
+        const formattedList = candidates
+          .map(
+            (c, idx) =>
+              `${idx + 1}. **${c.name}** — Match Score: **${c.score !== undefined ? `${c.score}%` : 'Unscored'}** | Status: *${c.status}*\n   - Skills: ${c.skills.slice(0, 5).join(', ')}\n   - Email: ${c.email || 'N/A'}${c.profileUrl ? ` | [LinkedIn](${c.profileUrl})` : ''}`
+          )
+          .join('\n\n');
+
+        return {
+          success: true,
+          candidates,
+          message: `Here are the top ${candidates.length} candidate(s) for this job:\n\n${formattedList}`,
         };
       }
 

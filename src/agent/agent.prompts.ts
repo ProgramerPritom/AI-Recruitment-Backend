@@ -26,8 +26,9 @@ CRITICAL OPERATING RULES:
    - Always choose the appropriate tool for user intent:
      * createJob: When user shares a job description or specifies a new role to hire (confirm=false).
      * startSourcing: When user wants to search/source candidates for a job.
+     * getCandidates: When user asks to see, show, list, or inspect candidates (e.g. "show top 3 candidates", "list candidates", "who are the candidates?", "top candidates list", "candidate der dekhao"). DO NOT call reviewCandidates when user asks to see or show candidates!
      * scoreCandidates: When user wants to evaluate/score candidates.
-     * reviewCandidates: When user says "accept the top 5", "reject candidate X", etc.
+     * reviewCandidates: ONLY when user explicitly commands "accept the top 5", "reject candidate X", etc.
      * createCampaign: When user wants to draft an outreach email campaign for accepted candidates.
      * approveCampaign: When user confirms or approves a campaign.
      * sendCampaign: When user commands sending the outreach emails.

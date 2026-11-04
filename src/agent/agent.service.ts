@@ -75,9 +75,21 @@ export class AgentService {
 
         let functionCalls = response.response.functionCalls();
 
-        // Safety override: if user clearly asked to create/hire a role but Gemini called getJobStats due to prior history, correct to createJob
+        // Safety override 1: if user clearly asked to create/hire a role but Gemini called getJobStats due to prior history, correct to createJob
         if (isJobCreationIntent && functionCalls && functionCalls.some((c) => c.name === 'getJobStats')) {
           functionCalls = [{ name: 'createJob', args: { rawContent: userMessage, confirm: false } }];
+        }
+
+        // Safety override 2: if user asked to show/list candidates, never accept or review them
+        const isShowCandidateIntent =
+          /\b(show|list|view|who|display|see|dekhao|kader)\b/i.test(userMessage) &&
+          /\b(candidate|candidates|profile|profiles|applicant|applicants)\b/i.test(userMessage) &&
+          !/\b(accept|reject|approve|shortlist|hire)\b/i.test(userMessage);
+
+        if (isShowCandidateIntent && functionCalls && functionCalls.some((c) => c.name === 'reviewCandidates')) {
+          const match = userMessage.match(/\d+/);
+          const limit = match ? parseInt(match[0], 10) : 5;
+          functionCalls = [{ name: 'getCandidates', args: { jobId, limit } }];
         }
 
         if (functionCalls && functionCalls.length > 0) {
@@ -130,7 +142,19 @@ export class AgentService {
           assistantText = 'Please select an active job first before starting candidate sourcing.';
         }
       } else if (lower.includes('csv') || lower.includes('upload candidate') || lower.includes('import candidate')) {
-        assistantText = `You can import candidate profiles via CSV at any time:\n\n1. Look at the top right of the **Talent Pipeline** table and click the blue **"Upload CSV"** button.\n2. In the modal, you can click **"Sample CSV"** to download a ready-made template, or use the \`sample_candidates.csv\` in your project folder.\n3. Select your CSV file and click **"Upload & Import Candidates"**.\n\nAll imported candidates will be validated, deduplicated, evaluated by AI, and saved to MongoDB.`;
+        assistantText = `You can import candidate profiles via CSV or resumes (PDF, Word, TXT) at any time:\n\n1. Look at the top right of the **Talent Pipeline** table and click the **"Upload CV / Resume"** button.\n2. In the modal, select your PDF, Word doc, or CSV file and click **"Upload & Parse Resume / CV"**.\n\nAll candidate credentials will be extracted by AI, evaluated with match scores, and saved to MongoDB.`;
+      } else if (
+        (lower.includes('show') || lower.includes('list') || lower.includes('view') || lower.includes('see') || lower.includes('dekhao') || lower.includes('kader') || lower.includes('who')) &&
+        (lower.includes('candidate') || lower.includes('profile') || lower.includes('applicant'))
+      ) {
+        if (jobId) {
+          const match = lower.match(/\d+/);
+          const limit = match ? parseInt(match[0], 10) : 5;
+          const res = await AgentToolExecutor.execute('getCandidates', { jobId, limit });
+          assistantText = res.message;
+        } else {
+          assistantText = 'Please select an active job first to view candidate profiles.';
+        }
       } else if (lower.includes('accept top') || (lower.includes('accept') && lower.includes('candidate'))) {
         if (jobId) {
           const match = lower.match(/\d+/);
