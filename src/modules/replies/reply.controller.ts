@@ -5,7 +5,7 @@ import { SimulateReplySchema } from '../../shared/schemas';
 export class ReplyController {
   public static async simulateReply(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const candidateId = req.params.candidateId as string;
+      const candidateId = (req.params.candidateId || req.body.candidateId) as string;
       const validated = SimulateReplySchema.parse(req.body);
 
       const result = await ReplyService.simulateReply(candidateId, validated.content);

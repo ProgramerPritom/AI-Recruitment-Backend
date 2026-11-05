@@ -34,14 +34,14 @@ export const VALID_CANDIDATE_STATUSES: CandidateStatus[] = [
 const STATUS_TRANSITIONS: Record<CandidateStatus, CandidateStatus[]> = {
   sourced: ['accepted', 'rejected'],
   accepted: ['contacted', 'rejected', 'sourced'], // Allow recruiter to undo/revert acceptance back to sourced
-  contacted: ['replied', 'unsubscribed', 'sourced'],
-  replied: ['interested', 'not_interested', 'unsubscribed'],
-  interested: ['meeting_booked', 'rejected', 'unsubscribed'],
-  not_interested: ['unsubscribed', 'sourced'],
-  meeting_booked: ['interviewed', 'rejected', 'unsubscribed'],
-  interviewed: ['shortlisted', 'rejected', 'unsubscribed'],
-  shortlisted: ['hired', 'rejected', 'unsubscribed'],
-  hired: [], // Terminal status
+  contacted: ['replied', 'interested', 'not_interested', 'unsubscribed', 'sourced'],
+  replied: ['interested', 'not_interested', 'unsubscribed', 'sourced'],
+  interested: ['meeting_booked', 'rejected', 'unsubscribed', 'sourced'],
+  not_interested: ['unsubscribed', 'sourced', 'rejected'],
+  meeting_booked: ['interviewed', 'rejected', 'unsubscribed', 'sourced'],
+  interviewed: ['shortlisted', 'rejected', 'unsubscribed', 'sourced'],
+  shortlisted: ['hired', 'rejected', 'unsubscribed', 'sourced'],
+  hired: ['sourced'], // Allow recruiter reset if needed
   rejected: ['accepted', 'sourced'], // Allow recruiter reconsideration or restoring
   unsubscribed: [], // Terminal blacklist status - no further outreach
 };

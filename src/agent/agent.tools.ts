@@ -499,9 +499,9 @@ export class AgentToolExecutor {
       }
 
       case 'sendCampaign': {
-        const campaign = await CampaignService.verifyApprovalForSend(args.campaignId);
-        const task = await TaskService.createTask(campaign.jobId.toString(), 'outreach');
         const stepNumber = args.stepNumber || 1;
+        const campaign = await CampaignService.verifyApprovalForSend(args.campaignId, stepNumber);
+        const task = await TaskService.createTask(campaign.jobId.toString(), 'outreach');
         setImmediate(() => {
           processOutreachJob({ taskId: task.taskId, campaignId: args.campaignId, stepNumber }).catch((e) =>
             TaskService.failTask(task.taskId, e.message)
@@ -582,4 +582,3 @@ export class AgentToolExecutor {
     }
   }
 }
-

@@ -4,11 +4,12 @@ export interface ICampaignDelivery extends Document {
   campaignId: mongoose.Types.ObjectId;
   candidateId: mongoose.Types.ObjectId;
   stepNumber: number;
+  delayDays: number;
   recipientEmail: string;
   subject: string;
   body: string;
   sentAt?: Date;
-  status: 'sent' | 'failed' | 'suppressed';
+  status: 'sending' | 'sent' | 'failed' | 'suppressed';
   error?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -19,13 +20,14 @@ const CampaignDeliverySchema = new Schema<ICampaignDelivery>(
     campaignId: { type: Schema.Types.ObjectId, ref: 'Campaign', required: true, index: true },
     candidateId: { type: Schema.Types.ObjectId, ref: 'Candidate', required: true, index: true },
     stepNumber: { type: Number, required: true },
+    delayDays: { type: Number, required: true, default: 0 },
     recipientEmail: { type: String, required: true },
     subject: { type: String, required: true },
     body: { type: String, required: true },
     sentAt: { type: Date },
     status: {
       type: String,
-      enum: ['sent', 'failed', 'suppressed'],
+      enum: ['sending', 'sent', 'failed', 'suppressed'],
       required: true,
       default: 'sent',
       index: true,
@@ -47,4 +49,3 @@ export const CampaignDelivery = mongoose.model<ICampaignDelivery>(
   'CampaignDelivery',
   CampaignDeliverySchema
 );
-

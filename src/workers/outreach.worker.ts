@@ -1,11 +1,9 @@
 import { Worker, Job as BullJob } from 'bullmq';
-import mongoose from 'mongoose';
 import { defaultWorkerOptions } from '../queues/queue.config';
 import { OutreachJobData } from '../queues/outreach.queue';
 import { Campaign } from '../modules/campaigns/campaign.model';
 import { CampaignDelivery } from '../modules/campaigns/campaignDelivery.model';
 import { Candidate } from '../modules/candidates/candidate.model';
-import { CandidateStateMachine } from '../shared/stateMachine';
 import { EmailProvider } from '../integrations/email/emailProvider';
 import { TaskService } from '../modules/tasks/task.service';
 import { ActivityService } from '../modules/activity/activity.service';
@@ -20,20 +18,40 @@ export async function processOutreachJob(
     throw new Error(`Campaign ${campaignId} not found`);
   }
 
-  const step = campaign.steps.find((s) => s.stepNumber === stepNumber) || campaign.steps[0];
+  const step = campaign.steps.find((s) => s.stepNumber === stepNumber);
   if (!step) {
     throw new Error(`Campaign step ${stepNumber} not found`);
   }
 
-  // Retrieve candidates for this job
+  const previousStep = campaign.steps
+    .filter((campaignStep) => campaignStep.stepNumber < step.stepNumber)
+    .sort((a, b) => b.stepNumber - a.stepNumber)[0];
+
   const candidates = await Candidate.find({
     jobId: campaign.jobId,
     email: { $exists: true, $ne: '' },
-    // Only candidates who were accepted (or already contacted if this is follow-up step > 1)
-    status: stepNumber === 1 ? 'accepted' : { $in: ['accepted', 'contacted'] },
+    status: step.stepNumber === 1 ? 'accepted' : 'contacted',
   }).exec();
 
-  const total = candidates.length;
+  const previouslyContactedIds =
+    previousStep && step.stepNumber > 1
+      ? new Set(
+          (
+            await CampaignDelivery.find({
+              campaignId: campaign._id,
+              stepNumber: previousStep.stepNumber,
+              status: 'sent',
+            })
+              .select('candidateId')
+              .exec()
+          ).map((delivery) => delivery.candidateId.toString())
+        )
+      : null;
+  const eligibleCandidates = previouslyContactedIds
+    ? candidates.filter((candidate) => previouslyContactedIds.has(candidate._id.toString()))
+    : candidates;
+
+  const total = eligibleCandidates.length;
   await TaskService.updateProgress(taskId, {
     phase: 'sending',
     processedCount: 0,
@@ -44,46 +62,41 @@ export async function processOutreachJob(
   let sentCount = 0;
   let suppressedCount = 0;
   let failedCount = 0;
+  let processedCount = 0;
+  const recordProgress = async () => {
+    processedCount++;
+    await TaskService.updateProgress(taskId, {
+      phase: 'sending',
+      processedCount,
+      totalCount: total,
+    });
+  };
 
-  for (const candidate of candidates) {
-    // 1. Critical Pre-flight Check: Re-read fresh candidate from database
-    const freshCandidate = await Candidate.findById(candidate._id).exec();
-    if (!freshCandidate) continue;
-
-    // Check suppression: if candidate replied or unsubscribed, skip delivery!
-    if (CandidateStateMachine.shouldSuppressOutreach(freshCandidate.status)) {
-      suppressedCount++;
-      try {
-        await CampaignDelivery.create({
-          campaignId: campaign._id,
-          candidateId: freshCandidate._id,
-          stepNumber: step.stepNumber,
-          recipientEmail: freshCandidate.email || '',
-          subject: step.subject,
-          body: step.body,
-          status: 'suppressed',
-          error: `Suppressed: candidate status is "${freshCandidate.status}"`,
-        });
-      } catch {}
-      continue;
-    }
-
-    // 2. Duplicate Delivery Prevention: Check if candidate already received this step
-    const existingDelivery = await CampaignDelivery.findOne({
-      campaignId: campaign._id,
-      candidateId: freshCandidate._id,
-      stepNumber: step.stepNumber,
-      status: 'sent',
+  for (const candidate of eligibleCandidates) {
+    const freshCandidate = await Candidate.findOne({
+      _id: candidate._id,
+      status: step.stepNumber === 1 ? 'accepted' : 'contacted',
     }).exec();
-
-    if (existingDelivery) {
-      console.log(`[OutreachWorker] Candidate ${freshCandidate.name} already received step ${step.stepNumber}. Skipping.`);
+    if (!freshCandidate) {
+      suppressedCount++;
+      await recordProgress();
       continue;
     }
 
-    // 3. Dispatch Email with personalization & dynamic variable substitution
-    let personalizedBody = step.body.replace(/\{\{name\}\}/gi, freshCandidate.name);
-    personalizedBody = personalizedBody
+    const deliveryKey = {
+      campaignId: campaign._id,
+      candidateId: candidate._id,
+      stepNumber: step.stepNumber,
+    };
+
+    const existingDelivery = await CampaignDelivery.findOne(deliveryKey).exec();
+    if (existingDelivery?.status === 'sent' || existingDelivery?.status === 'sending') {
+      await recordProgress();
+      continue;
+    }
+
+    const personalizedBody = step.body
+      .replace(/\{\{name\}\}/gi, freshCandidate.name)
       .replace(/\[Your Name\]/gi, 'Talent Acquisition Team')
       .replace(/\[Your Title\]/gi, 'Executive Recruiter')
       .replace(/\[Your Company\]/gi, 'Aironauts')
@@ -92,59 +105,83 @@ export async function processOutreachJob(
       .replace(/\[Your LinkedIn Profile[^\]]*\]/gi, '')
       .replace(/\[Your Phone Number[^\]]*\]/gi, '');
 
+    const deliveryData = {
+      ...deliveryKey,
+      delayDays: step.delayDays,
+      recipientEmail: candidate.email || '',
+      subject: step.subject,
+      body: personalizedBody,
+      status: 'sending' as const,
+      error: undefined,
+    };
+
+    if (existingDelivery) {
+      const claimedDelivery = await CampaignDelivery.findOneAndUpdate(
+        {
+          ...deliveryKey,
+          status: { $in: ['failed', 'suppressed'] },
+        },
+        { $set: deliveryData },
+        { new: true }
+      ).exec();
+      if (!claimedDelivery) {
+        await recordProgress();
+        continue;
+      }
+    } else {
+      try {
+        await CampaignDelivery.create(deliveryData);
+      } catch (err: unknown) {
+        if (err && typeof err === 'object' && 'code' in err && err.code === 11000) {
+          await recordProgress();
+          continue;
+        }
+        throw err;
+      }
+    }
+
     try {
       await EmailProvider.sendEmail({
         to: freshCandidate.email!,
         subject: step.subject,
         body: personalizedBody,
       });
-
-      // Record successful delivery
+    } catch (err: unknown) {
+      failedCount++;
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error(`[OutreachWorker] Failed sending to ${freshCandidate.email}:`, errorMessage);
       await CampaignDelivery.findOneAndUpdate(
+        deliveryKey,
         {
-          campaignId: campaign._id,
-          candidateId: freshCandidate._id,
-          stepNumber: step.stepNumber,
+          $set: {
+            status: 'failed',
+            error: errorMessage,
+          },
         },
-        {
-          recipientEmail: freshCandidate.email,
-          subject: step.subject,
-          body: personalizedBody,
+        { new: true }
+      ).exec();
+      await recordProgress();
+      continue;
+    }
+
+    await CampaignDelivery.findOneAndUpdate(
+      deliveryKey,
+      {
+        $set: {
           sentAt: new Date(),
           status: 'sent',
         },
-        { upsert: true, new: true }
-      );
-
-      // Transition candidate status to 'contacted' if currently 'accepted'
-      if (freshCandidate.status === 'accepted') {
-        freshCandidate.status = 'contacted';
-        await freshCandidate.save();
-      }
-
-      sentCount++;
-    } catch (err: any) {
-      failedCount++;
-      console.error(`[OutreachWorker] Failed sending to ${freshCandidate.email}:`, err.message);
-      try {
-        await CampaignDelivery.create({
-          campaignId: campaign._id,
-          candidateId: freshCandidate._id,
-          stepNumber: step.stepNumber,
-          recipientEmail: freshCandidate.email || '',
-          subject: step.subject,
-          body: personalizedBody,
-          status: 'failed',
-          error: err.message,
-        });
-      } catch {}
+      },
+      { new: true }
+    ).exec();
+    if (step.stepNumber === 1) {
+      await Candidate.updateOne(
+        { _id: freshCandidate._id, status: 'accepted' },
+        { $set: { status: 'contacted' } }
+      ).exec();
     }
-
-    await TaskService.updateProgress(taskId, {
-      phase: 'sending',
-      processedCount: sentCount + suppressedCount + failedCount,
-      totalCount: total,
-    });
+    sentCount++;
+    await recordProgress();
   }
 
   campaign.status = 'running';
@@ -185,4 +222,3 @@ export function startOutreachWorker(): Worker<OutreachJobData> {
 
   return worker;
 }
-

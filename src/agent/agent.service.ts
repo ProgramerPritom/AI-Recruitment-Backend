@@ -88,6 +88,8 @@ export class AgentService {
           const hexIdMatch = lower.match(/\b([a-f0-9]{24})\b/i);
           const isDetailIntent =
             /\b(detail|details|experience|techonlogies|technologies|skills|profile|linkedin|info|background|shared|share|cv|resume)\b/i.test(lower);
+          const isMeetingIntent =
+            /\b(meeting|schedule|interview|book|slot|call|scheduling|time-slot)\b/i.test(lower) && !isRemoveOrDelete;
 
           // Score threshold pattern (e.g. "above score 80", "score >= 80", "above 80", "score 80 ar beshi")
           const scoreThresholdMatch =
@@ -106,8 +108,23 @@ export class AgentService {
             );
           });
 
-          // 1. Specific Candidate Detail Lookup (by ID or Name)
-          if ((hexIdMatch && isDetailIntent) || (hexIdMatch && !isAccept && !isReject && !isRemoveOrDelete)) {
+          // 1. Meeting Booking Intent
+          if (isMeetingIntent) {
+            const targetCandidate =
+              mentionedCandidate ||
+              existingCandidates.find((c) => c.status === 'interested') ||
+              existingCandidates.find((c) => c.status === 'contacted') ||
+              existingCandidates[0];
+
+            if (targetCandidate) {
+              cardPayload = {
+                cardType: 'meeting_booking',
+                candidateId: targetCandidate._id.toString(),
+                candidateName: targetCandidate.name,
+              };
+              assistantText = `Here are available interview slots to schedule a technical screen with **${targetCandidate.name}**. Select a slot below to confirm the meeting:`;
+            }
+          } else if ((hexIdMatch && isDetailIntent) || (hexIdMatch && !isAccept && !isReject && !isRemoveOrDelete)) {
             const candidateId = hexIdMatch[1];
             const res = await AgentToolExecutor.execute('getCandidateDetails', { candidateId, jobId });
             cardPayload = res;

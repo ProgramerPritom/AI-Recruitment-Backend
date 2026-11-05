@@ -5,6 +5,7 @@ const router = Router();
 
 router.post('/jobs/:jobId/campaigns', CampaignController.createDraft);
 router.get('/jobs/:jobId/campaigns', CampaignController.getByJobId);
+router.get('/jobs/:jobId/deliveries', CampaignController.getDeliveriesByJobId);
 router.get('/campaigns/:campaignId', CampaignController.getById);
 router.patch('/campaigns/:campaignId', CampaignController.updateDraft);
 router.post('/campaigns/:campaignId/approve', CampaignController.approve);
@@ -13,4 +14,3 @@ router.get('/campaigns/:campaignId/deliveries', CampaignController.getDeliveries
 router.get('/email/outbox', CampaignController.getOutbox);
 
 export default router;
-

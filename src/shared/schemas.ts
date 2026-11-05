@@ -59,6 +59,7 @@ export const ApproveCampaignSchema = z.object({
 });
 
 export const SimulateReplySchema = z.object({
+  candidateId: z.string().optional(),
   content: z.string().trim().min(1, 'Reply message content is required').max(5000),
 });
 

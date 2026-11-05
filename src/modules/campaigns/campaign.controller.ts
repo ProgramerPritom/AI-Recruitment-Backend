@@ -73,7 +73,7 @@ export class CampaignController {
       const stepNumber = req.body.stepNumber ? parseInt(req.body.stepNumber, 10) : 1;
 
       // 1. Enforce strict approval check
-      const campaign = await CampaignService.verifyApprovalForSend(campaignId);
+      const campaign = await CampaignService.verifyApprovalForSend(campaignId, stepNumber);
 
       // 2. Create tracked background task
       const task = await TaskService.createTask(campaign.jobId.toString(), 'outreach');
@@ -117,9 +117,18 @@ export class CampaignController {
     }
   }
 
+  public static async getDeliveriesByJobId(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const jobId = req.params.jobId as string;
+      const deliveries = await CampaignService.getDeliveriesByJobId(jobId);
+      res.status(200).json({ data: deliveries });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   public static async getOutbox(_req: Request, res: Response): Promise<void> {
     const messages = EmailProvider.getVirtualOutbox();
     res.status(200).json({ data: messages });
   }
 }
-

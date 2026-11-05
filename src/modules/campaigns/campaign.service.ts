@@ -210,13 +210,13 @@ Location: ${job.location || 'Remote'}`;
   /**
    * Verify approval and prepare for sending
    */
-  public static async verifyApprovalForSend(campaignId: string): Promise<ICampaign> {
+  public static async verifyApprovalForSend(campaignId: string, stepNumber: number): Promise<ICampaign> {
     const campaign = await Campaign.findById(campaignId).exec();
     if (!campaign) {
       throw new AppError(`Campaign ${campaignId} not found`, 404, 'CAMPAIGN_NOT_FOUND');
     }
 
-    if (campaign.status !== 'approved') {
+    if (campaign.status !== 'approved' && campaign.status !== 'running') {
       throw new AppError(
         'Campaign must be explicitly approved before sending.',
         403,
@@ -232,6 +232,53 @@ Location: ${job.location || 'Remote'}`;
         'Campaign content has been modified since approval. Re-approval required.',
         400,
         'APPROVAL_INVALIDATED'
+      );
+    }
+
+    const step = campaign.steps.find((campaignStep) => campaignStep.stepNumber === stepNumber);
+    if (!step) {
+      throw new AppError(`Campaign step ${stepNumber} not found`, 400, 'CAMPAIGN_STEP_NOT_FOUND');
+    }
+
+    const previousStep = campaign.steps
+      .filter((campaignStep) => campaignStep.stepNumber < step.stepNumber)
+      .sort((a, b) => b.stepNumber - a.stepNumber)[0];
+    if (step.stepNumber > 1 && !previousStep) {
+      throw new AppError(
+        'This follow-up step has no earlier campaign step to follow.',
+        409,
+        'FOLLOW_UP_NOT_READY'
+      );
+    }
+
+    const priorStepCandidateIds = previousStep
+      ? await CampaignDelivery.distinct('candidateId', {
+          campaignId: campaign._id,
+          stepNumber: previousStep.stepNumber,
+          status: 'sent',
+        }).exec()
+      : [];
+    const candidateQuery: Record<string, unknown> = {
+      jobId: campaign.jobId,
+      email: { $exists: true, $ne: '' },
+      status: step.stepNumber === 1 ? 'accepted' : 'contacted',
+    };
+    if (previousStep) candidateQuery._id = { $in: priorStepCandidateIds };
+
+    const eligibleCandidates = await Candidate.find(candidateQuery).select('_id').exec();
+    const alreadyDispatchedIds = await CampaignDelivery.distinct('candidateId', {
+      campaignId: campaign._id,
+      stepNumber: step.stepNumber,
+      candidateId: { $in: eligibleCandidates.map((candidate) => candidate._id) },
+      status: { $in: ['sent', 'sending'] },
+    }).exec();
+    if (eligibleCandidates.length <= alreadyDispatchedIds.length) {
+      throw new AppError(
+        previousStep
+          ? 'No candidates are ready for this follow-up step. Make sure the previous step was sent successfully.'
+          : 'There are no accepted candidates available for this step.',
+        409,
+        previousStep ? 'FOLLOW_UP_NOT_READY' : 'NO_ELIGIBLE_CANDIDATES'
       );
     }
 
@@ -257,5 +304,28 @@ Location: ${job.location || 'Remote'}`;
       .sort({ createdAt: -1 })
       .exec();
   }
-}
 
+  public static async getDeliveriesByJobId(jobId: string): Promise<ICampaignDelivery[]> {
+    const campaigns = await Campaign.find({
+      jobId: new mongoose.Types.ObjectId(jobId),
+    })
+      .select('_id steps')
+      .exec();
+
+    const campaignById = new Map(campaigns.map((campaign) => [campaign._id.toString(), campaign]));
+    const deliveries = await CampaignDelivery.find({
+      campaignId: { $in: campaigns.map((campaign) => campaign._id) },
+    })
+      .sort({ createdAt: -1 })
+      .exec();
+
+    return deliveries.map((delivery) => {
+      const campaign = campaignById.get(delivery.campaignId.toString());
+      const step = campaign?.steps.find(
+        (campaignStep) => campaignStep.stepNumber === delivery.stepNumber
+      );
+      if (step) delivery.delayDays = step.delayDays;
+      return delivery;
+    });
+  }
+}

@@ -26,5 +26,17 @@ export class MeetingController {
       next(err);
     }
   }
-}
 
+  public static async sendInvitation(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const meetingId = req.params.meetingId as string;
+      const result = await MeetingService.sendInvitation(meetingId);
+      res.status(200).json({
+        message: 'Interview invitation sent successfully.',
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+}

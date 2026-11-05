@@ -6,6 +6,9 @@ export interface IMeeting extends Document {
   slotTime: string;
   status: 'requested' | 'confirmed' | 'cancelled';
   confirmedAt?: Date;
+  invitationStatus: 'not_sent' | 'sending' | 'sent' | 'failed';
+  invitationSentAt?: Date;
+  invitationError?: string;
   notes?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -23,6 +26,13 @@ const MeetingSchema = new Schema<IMeeting>(
       index: true,
     },
     confirmedAt: { type: Date, default: Date.now },
+    invitationStatus: {
+      type: String,
+      enum: ['not_sent', 'sending', 'sent', 'failed'],
+      default: 'not_sent',
+    },
+    invitationSentAt: { type: Date },
+    invitationError: { type: String },
     notes: { type: String },
   },
   {
@@ -31,4 +41,3 @@ const MeetingSchema = new Schema<IMeeting>(
 );
 
 export const Meeting = mongoose.model<IMeeting>('Meeting', MeetingSchema);
-

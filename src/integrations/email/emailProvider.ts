@@ -1,4 +1,5 @@
 import { config } from '../../config';
+import nodemailer, { Transporter } from 'nodemailer';
 
 export interface SendEmailPayload {
   to: string;
@@ -25,6 +26,7 @@ export interface OutboxEmailRecord {
 }
 
 const virtualOutbox: OutboxEmailRecord[] = [];
+let smtpTransporter: Transporter | undefined;
 
 export class EmailProvider {
   /**
@@ -33,7 +35,36 @@ export class EmailProvider {
   public static async sendEmail(payload: SendEmailPayload): Promise<EmailDeliveryResult> {
     const fromAddress = payload.from || config.FROM_EMAIL;
 
-    // In-memory / virtual outbox (Default zero-config provider)
+    if (config.EMAIL_PROVIDER === 'smtp') {
+      if (!config.SMTP_HOST || !config.SMTP_USER || !config.SMTP_PASS) {
+        throw new Error('SMTP email is enabled, but SMTP_HOST, SMTP_USER, or SMTP_PASS is missing.');
+      }
+
+      smtpTransporter ??= nodemailer.createTransport({
+        host: config.SMTP_HOST,
+        port: config.SMTP_PORT,
+        secure: config.SMTP_PORT === 465,
+        auth: {
+          user: config.SMTP_USER,
+          pass: config.SMTP_PASS,
+        },
+      });
+
+      const result = await smtpTransporter.sendMail({
+        from: fromAddress,
+        to: payload.to,
+        subject: payload.subject,
+        text: payload.body,
+      });
+
+      return {
+        success: true,
+        messageId: result.messageId,
+        provider: 'smtp',
+      };
+    }
+
+    // In-memory / virtual outbox for safe local testing.
     const messageId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     virtualOutbox.unshift({
       id: messageId,
@@ -62,4 +93,3 @@ export class EmailProvider {
     return virtualOutbox.slice(0, limit);
   }
 }
-
