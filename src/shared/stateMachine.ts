@@ -32,17 +32,17 @@ export const VALID_CANDIDATE_STATUSES: CandidateStatus[] = [
  * Key: current status -> Value: array of allowed target statuses
  */
 const STATUS_TRANSITIONS: Record<CandidateStatus, CandidateStatus[]> = {
-  sourced: ['accepted', 'rejected'],
-  accepted: ['contacted', 'rejected', 'sourced'], // Allow recruiter to undo/revert acceptance back to sourced
-  contacted: ['replied', 'interested', 'not_interested', 'unsubscribed', 'sourced'],
-  replied: ['interested', 'not_interested', 'unsubscribed', 'sourced'],
-  interested: ['meeting_booked', 'rejected', 'unsubscribed', 'sourced'],
+  sourced: ['accepted', 'rejected', 'meeting_booked'],
+  accepted: ['contacted', 'rejected', 'sourced', 'meeting_booked', 'interviewed'], // Allow recruiter to advance or revert
+  contacted: ['replied', 'interested', 'not_interested', 'unsubscribed', 'sourced', 'meeting_booked', 'interviewed'],
+  replied: ['interested', 'not_interested', 'unsubscribed', 'sourced', 'meeting_booked', 'interviewed'],
+  interested: ['meeting_booked', 'interviewed', 'shortlisted', 'hired', 'rejected', 'unsubscribed', 'sourced'],
   not_interested: ['unsubscribed', 'sourced', 'rejected'],
-  meeting_booked: ['interviewed', 'rejected', 'unsubscribed', 'sourced'],
-  interviewed: ['shortlisted', 'rejected', 'unsubscribed', 'sourced'],
-  shortlisted: ['hired', 'rejected', 'unsubscribed', 'sourced'],
-  hired: ['sourced'], // Allow recruiter reset if needed
-  rejected: ['accepted', 'sourced'], // Allow recruiter reconsideration or restoring
+  meeting_booked: ['interviewed', 'shortlisted', 'hired', 'rejected', 'unsubscribed', 'sourced', 'meeting_booked'],
+  interviewed: ['shortlisted', 'hired', 'rejected', 'unsubscribed', 'sourced'],
+  shortlisted: ['hired', 'interviewed', 'rejected', 'unsubscribed', 'sourced'],
+  hired: ['sourced', 'shortlisted'], // Allow recruiter reset if needed
+  rejected: ['accepted', 'sourced', 'interested'], // Allow recruiter reconsideration or restoring
   unsubscribed: [], // Terminal blacklist status - no further outreach
 };
 

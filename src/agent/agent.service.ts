@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { ChatMessage, IChatMessage } from '../modules/chat/chat.model';
 import { Candidate } from '../modules/candidates/candidate.model';
+import { CandidateService } from '../modules/candidates/candidate.service';
 import { Job } from '../modules/jobs/job.model';
 import { AGENT_SYSTEM_PROMPT } from './agent.prompts';
 import { agentToolDeclarations, AgentToolExecutor } from './agent.tools';
@@ -78,7 +79,11 @@ export class AgentService {
           const lower = userMessage.toLowerCase();
           const isRemoveOrDelete = /\b(remove|delete|muche|katia|drop)\b/i.test(lower);
           const isReject = /\b(reject|bad)\b/i.test(lower) && !/\b(don't|dont|not|na|koro na)\b/i.test(lower);
-          const isAccept = /\b(accept|shorthand|shortlist|nebo|neo)\b/i.test(lower) && !/\b(don't|dont|not|na|koro na)\b/i.test(lower);
+          const isListQuery = /\b(show|list|filter|dekhao|kotojon|ke ke|who|display|view|find|check)\b/i.test(lower);
+          const isHire = /\b(hire|hired|niyog|offer|finalize)\b/i.test(lower) && !isListQuery && !/\b(don't|dont|not|na|koro na)\b/i.test(lower);
+          const isInterviewed = /\b(interviewed|mark interviewed|interview done|interview complete|conducted interview)\b/i.test(lower) && !isListQuery;
+          const isShortlist = /\b(shortlist|shortlisted)\b/i.test(lower) && !isListQuery;
+          const isAccept = /\b(accept|accepted|nebo|neo)\b/i.test(lower) && !isShortlist && !isHire && !isInterviewed && !/\b(don't|dont|not|na|koro na)\b/i.test(lower);
           const isLowestScore = /\b(lowest score|low score|last candidate|lowest|bottom|sobar sesher)\b/i.test(lower);
           const isFirstCandidate = /\b(1st candidate|first candidate|top 1 candidate|only 1st|only first|1st|top 1|first one)\b/i.test(lower);
           const isNegation =
@@ -88,8 +93,11 @@ export class AgentService {
           const hexIdMatch = lower.match(/\b([a-f0-9]{24})\b/i);
           const isDetailIntent =
             /\b(detail|details|experience|techonlogies|technologies|skills|profile|linkedin|info|background|shared|share|cv|resume)\b/i.test(lower);
-          const isMeetingIntent =
-            /\b(meeting|schedule|interview|book|slot|call|scheduling|time-slot)\b/i.test(lower) && !isRemoveOrDelete;
+          const isMeetingBookingIntent =
+            /\b(schedule|book|booking|set up|set a time|pick slot)\b/i.test(lower) &&
+            /\b(meeting|interview|call|slot)\b/i.test(lower) &&
+            !isListQuery &&
+            !isRemoveOrDelete;
 
           // Score threshold pattern (e.g. "above score 80", "score >= 80", "above 80", "score 80 ar beshi")
           const scoreThresholdMatch =
@@ -108,8 +116,77 @@ export class AgentService {
             );
           });
 
-          // 1. Meeting Booking Intent
-          if (isMeetingIntent) {
+          // 1. List / Query Intents (e.g. "show me meeting booked candidate", "who is hired", "list interviewed")
+          if (isListQuery && /\b(meeting|meeting booked|meeting_booked)\b/i.test(lower)) {
+            const matched = existingCandidates.filter((c) => c.status === 'meeting_booked');
+            if (matched.length > 0) {
+              assistantText = `Found **${matched.length}** candidate(s) currently in **Meeting Booked** stage:\n` +
+                matched.map((c, i) => `${i + 1}. **${c.name}** (Match Score: **${c.score}%**)`).join('\n') +
+                `\n\n👉 **Next Actions:** You can click the **Interviewed** or **Hire** button on their row in the Candidates table, or say *"mark ${matched[0].name} as interviewed"* or *"hire ${matched[0].name}"*.`;
+            } else {
+              assistantText = `There are currently no candidates in **Meeting Booked** status.`;
+            }
+          } else if (isListQuery && /\b(hired|hire)\b/i.test(lower)) {
+            const matched = existingCandidates.filter((c) => c.status === 'hired');
+            if (matched.length > 0) {
+              assistantText = `🎉 Currently **${matched.length}** candidate(s) have been successfully **Hired**:\n` +
+                matched.map((c, i) => `${i + 1}. **${c.name}** (Score: **${c.score}%**)`).join('\n');
+            } else {
+              assistantText = `No candidates have been marked as Hired yet.`;
+            }
+          } else if (isListQuery && /\b(interviewed|interview)\b/i.test(lower)) {
+            const matched = existingCandidates.filter((c) => c.status === 'interviewed');
+            if (matched.length > 0) {
+              assistantText = `Found **${matched.length}** candidate(s) in **Interviewed** stage:\n` +
+                matched.map((c, i) => `${i + 1}. **${c.name}** (Score: **${c.score}%**)`).join('\n') +
+                `\n\n👉 To advance, say *"shortlist ${matched[0].name}"* or *"hire ${matched[0].name}"*, or use the table buttons.`;
+            } else {
+              assistantText = `No candidates are currently marked as Interviewed.`;
+            }
+          } else if (isListQuery && /\b(shortlist|shortlisted)\b/i.test(lower)) {
+            const matched = existingCandidates.filter((c) => c.status === 'shortlisted');
+            if (matched.length > 0) {
+              assistantText = `Found **${matched.length}** candidate(s) in the **Shortlist**:\n` +
+                matched.map((c, i) => `${i + 1}. **${c.name}** (Score: **${c.score}%**)`).join('\n') +
+                `\n\n👉 You can hire them by saying *"hire ${matched[0].name}"* or clicking **Hire Candidate** in the table.`;
+            } else {
+              assistantText = `The shortlist is currently empty.`;
+            }
+          } else if (isHire) {
+            // Direct Hire Command (e.g. "hire Suman KP", "hire candidate Suman", "hire meeting booked candidate")
+            const target =
+              mentionedCandidate ||
+              existingCandidates.find((c) => c.status === 'meeting_booked' || c.status === 'shortlisted' || c.status === 'interviewed' || c.status === 'interested');
+            if (target) {
+              await CandidateService.updateStatus(target._id.toString(), 'hired', 'agent');
+              assistantText = `🎉 **${target.name}** has been successfully marked as **Hired**! The candidate is finalized and recruitment funnel is updated.`;
+            } else {
+              assistantText = `Could not find a candidate ready to be hired. Please specify the candidate name (e.g. *"hire ${existingCandidates[0]?.name || 'candidate'}"*).`;
+            }
+          } else if (isInterviewed) {
+            // Direct Mark Interviewed Command (e.g. "mark Suman as interviewed", "interviewed Suman")
+            const target =
+              mentionedCandidate ||
+              existingCandidates.find((c) => c.status === 'meeting_booked');
+            if (target) {
+              await CandidateService.updateStatus(target._id.toString(), 'interviewed', 'agent');
+              assistantText = `Candidate **${target.name}** has been moved to **Interviewed** status. You can now shortlist or hire them directly!`;
+            } else {
+              assistantText = `Could not find a candidate in meeting stage to mark as interviewed. Please specify the candidate name.`;
+            }
+          } else if (isShortlist) {
+            // Direct Shortlist Command (e.g. "shortlist Suman")
+            const target =
+              mentionedCandidate ||
+              existingCandidates.find((c) => c.status === 'interviewed' || c.status === 'meeting_booked');
+            if (target) {
+              await CandidateService.updateStatus(target._id.toString(), 'shortlisted', 'agent');
+              assistantText = `Candidate **${target.name}** has been moved to the **Shortlist**!`;
+            } else {
+              assistantText = `Could not find candidate to shortlist. Please specify the candidate name.`;
+            }
+          } else if (isMeetingBookingIntent) {
+            // Meeting Slot Booking Intent
             const targetCandidate =
               mentionedCandidate ||
               existingCandidates.find((c) => c.status === 'interested') ||
@@ -203,6 +280,15 @@ export class AgentService {
                 candidateName: mentionedCandidate.name,
               });
               assistantText = res.message;
+            } else if (isHire) {
+              await CandidateService.updateStatus(mentionedCandidate._id.toString(), 'hired', 'agent');
+              assistantText = `🎉 **${mentionedCandidate.name}** has been successfully marked as **Hired**!`;
+            } else if (isInterviewed) {
+              await CandidateService.updateStatus(mentionedCandidate._id.toString(), 'interviewed', 'agent');
+              assistantText = `Candidate **${mentionedCandidate.name}** has been marked as **Interviewed**.`;
+            } else if (isShortlist) {
+              await CandidateService.updateStatus(mentionedCandidate._id.toString(), 'shortlisted', 'agent');
+              assistantText = `Candidate **${mentionedCandidate.name}** has been added to the **Shortlist**!`;
             } else if (isAccept) {
               const res = await AgentToolExecutor.execute('reviewCandidates', {
                 jobId,
